@@ -194,7 +194,7 @@ const SiteFooter = ({ onNavigate }: any) => (
         </div>
       </div>
       <div className="border-t border-[var(--border)] pt-8 flex flex-col md:flex-row justify-between items-center text-xs text-[var(--text-muted)]">
-        <div>© 2025 quietloudlab. All rights reserved.</div>
+        <div>© 2026 quietloudlab. All rights reserved.</div>
         <div className="flex gap-4 mt-4 md:mt-0">
           <a href="/privacy" className="cursor-pointer hover:text-[var(--text-main)]">Privacy</a>
           <a href="/terms" className="cursor-pointer hover:text-[var(--text-main)]">Terms</a>
