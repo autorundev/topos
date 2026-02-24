@@ -296,10 +296,14 @@ export interface Persona {
 export interface NodeAttachment {
   id: string; // Unique instance ID
   referenceId: string; // ID from DB (e.g. 'const_privacy')
+  customLabel?: string; // Optional local label for user-created attachments
+  customDescription?: string; // Optional local description for user-created attachments
+  customIcon?: string; // Optional local icon key for user-created attachments
   type: 'data' | 'constraint';
-  direction?: 'input' | 'output'; // Differentiate I/O
+  direction?: 'input' | 'output'; // For manual data attachments (documentation purposes)
   notes?: string; // General context notes
   examples?: string; // Data-specific examples, schema, or modifiers
+  status?: 'pending' | 'approved' | 'failed' | 'not-applicable'; // Constraint audit lifecycle
 }
 
 export interface BuilderNode {
@@ -321,12 +325,17 @@ export interface BuilderNode {
   subType?: 'note' | 'zone'; // For annotations
   semanticType?: 'data' | 'constraint' | 'touchpoint' | 'task'; // Semantic type for zones (makes them connectable)
 
+  classId?: string;
+  instanceName?: string;
+  instanceNotes?: string;
   customLabel?: string;
+  className?: string;
   notes?: string;
   designerDescription?: string; // Custom UX-focused description for experiential view
   personaId?: string; // Link to a Persona (legacy assignment to task)
   capability?: string; // Specific capability selection for AI tasks
   attachments?: NodeAttachment[]; // Nested constraints/data
+  suppressedValidations?: string[]; // Validation keys user has dismissed
   // Support for custom user-created nodes that don't exist in the DB
   customDefinition?: {
     name: string;
@@ -345,16 +354,43 @@ export interface BuilderEdge {
   attachments?: NodeAttachment[];
   sourceHandle?: 'left' | 'right' | 'top' | 'bottom'; // Which port the edge connects to on source node
   targetHandle?: 'left' | 'right' | 'top' | 'bottom'; // Which port the edge connects to on target node
-  customX?: number; // Manual override for vertical segment X (Forward connections)
-  customY?: number; // Manual override for horizontal segment Y (Backward connections)
-  sourceX?: number; // Manual override for vertical segment near source (Backward connections)
-  targetX?: number; // Manual override for vertical segment near target (Backward connections)
+  sourcePortId?: string; // Attachment ID for data port connection (undefined = main port)
+  targetPortId?: string; // Attachment ID for data port connection (undefined = main port)
+  /** @deprecated Use waypoints instead. Migrated automatically on project load. */
+  customX?: number;
+  /** @deprecated Use waypoints instead. Migrated automatically on project load. */
+  customY?: number;
+  /** @deprecated Use waypoints instead. Migrated automatically on project load. */
+  sourceX?: number;
+  /** @deprecated Use waypoints instead. Migrated automatically on project load. */
+  targetX?: number;
+  /** Manual waypoints for custom edge routing. Replaces legacy customX/Y/sourceX/targetX. */
+  waypoints?: Array<{ x: number; y: number }>;
+  /** Parametric label position along eligible path segments. t ∈ [0,1]. */
+  labelAnchor?: { t: number; segmentIndex?: number; segmentT?: number };
+  // Transitive edge metadata (only present when data nodes are hidden)
+  _isTransitive?: boolean;
+  _viaDataNodes?: string[]; // IDs of hidden data nodes this edge passes through
+}
+
+export interface NodeClass {
+  id: string;
+  type: NodeType;
+  referenceId?: string;
+  name: string;
+  properties: Record<string, any>;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface BuilderState {
   nodes: BuilderNode[];
   edges: BuilderEdge[];
   personas: Persona[];
+  nodeClasses?: NodeClass[];
+  /** Schema version for migrations - set automatically on save */
+  schemaVersion?: number;
 }
 
 // --- Project Management ---
