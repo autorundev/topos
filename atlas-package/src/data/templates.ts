@@ -828,7 +828,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] =
     },
     {
       "id": "08b1982b-abbf-4fc8-9b09-1188f06d9d63",
-      "referenceId": "system_load_db",
+      "referenceId": "system_read_db",
       "type": "task",
       "x": 1453.6142460684555,
       "y": 781.6864164005842,
@@ -1352,7 +1352,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] =
     },
     {
       "id": "f80e72a1-9c43-4707-a78c-936e953ef279",
-      "referenceId": "system_load_db",
+      "referenceId": "system_read_db",
       "type": "task",
       "x": 784.1530497300524,
       "y": 1346.2941188626166,
@@ -1934,7 +1934,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] =
     },
     {
       "id": "dc721b4e-d0ad-4b2a-8cf6-cb8e0d317026",
-      "referenceId": "system_save_db",
+      "referenceId": "system_create_db",
       "type": "task",
       "x": 2780.9697582607264,
       "y": 276.49530705464457,
@@ -3018,7 +3018,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] =
     },
     {
       "id": "031e4f7d-4659-42ba-b058-bfbf84ea2b56",
-      "referenceId": "system_save_db",
+      "referenceId": "system_create_db",
       "type": "task",
       "x": 1795.4041879755457,
       "y": 983.7803703670075,
@@ -3449,7 +3449,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] =
     },
     {
       "id": "4458ad1b-bd05-4f3f-adf9-374a1bc6abc6",
-      "referenceId": "human_gesture",
+      "referenceId": "human_adjust_control",
       "type": "task",
       "x": 604.014468895346,
       "y": 800.3640631758337,
@@ -3510,7 +3510,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] =
       "attachments": [
         {
           "id": "enemy-5-c",
-          "referenceId": "const_rules",
+          "referenceId": "const_system_instruction",
           "type": "constraint",
           "notes": "Design rules (difficulty tuning, fairness, avoid perfect aim)"
         },
@@ -3738,6 +3738,8 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] =
       "type": "task",
       "x": 3221.2278604854096,
       "y": 1095.9793975460932,
+      "customLabel": "Persist World State",
+      "notes": "Write back updated enemy state (memory, cooldowns, alertness) for next tick.",
       "measuredW": 280,
       "measuredH": 167
     },
