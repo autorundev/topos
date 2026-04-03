@@ -216,56 +216,88 @@ export const LandingPage = ({ onNavigate }: { onNavigate: (page: string) => void
             }} />
           </div>
         </div>
+      </section>
 
-        {/* Email Signup */}
-        <div className="mt-20 mb-16">
-          <div className="bg-gradient-to-br from-gray-100 to-gray-50 dark:from-white/[0.08] dark:to-white/[0.03] border border-[var(--border)] rounded-lg px-8 py-6 md:px-10 md:py-7">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 md:gap-12">
-              {/* Left: Text */}
-              <div className="md:flex-1">
-                <p className="text-xl md:text-2xl font-sans font-medium text-[var(--text-main)] leading-snug">
-                  Stay updated on new patterns and get early access to emerging tools.
+      {/* AI Interaction Studio Banner */}
+      <section className="mt-20 md:mt-28 mb-8 md:mb-12 px-4 max-w-screen-2xl mx-auto">
+        <div className="bg-[#111111] dark:bg-[#0a0a0a] rounded-2xl overflow-hidden border border-[var(--border)] relative">
+          <div className="absolute bottom-0 left-0 right-0 h-2/3 pointer-events-none" style={{ background: 'radial-gradient(ellipse at 50% 100%, rgba(192,132,252,0.10) 0%, transparent 70%)' }} />
+          <div className="flex flex-col lg:flex-row items-center relative">
+            {/* Left: Text Content */}
+            <div className="lg:w-[45%] px-8 py-14 md:px-10 md:py-16 flex-shrink-0 flex flex-col justify-between self-stretch">
+              <div>
+                <h2 className="text-3xl md:text-4xl font-sans font-medium text-white leading-snug mb-4">
+                  Introducing AI Interaction Studio
+                </h2>
+                <p className="text-base md:text-lg text-gray-400 leading-relaxed">
+                  A visual workspace for mapping workflows, dependencies, and user touchpoints in AI products, so teams can think clearly, align faster, and build with more confidence.
                 </p>
               </div>
+              <a
+                href="https://studio.ai-interaction.com"
+                className="inline-flex items-center gap-2 text-sm font-mono uppercase tracking-wider text-white border border-white/30 px-6 py-3 hover:bg-white/10 transition-all w-fit mt-8"
+              >
+                Map your AI system <span aria-hidden="true">&rarr;</span>
+              </a>
+            </div>
 
-              {/* Right: Form */}
-              <div className="md:flex-shrink-0 w-full md:w-auto md:min-w-[280px]">
-                {heroSubscribeStatus === 'success' && (
-                  <div
-                    className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 text-sm rounded"
-                    role="alert"
-                    aria-live="polite"
-                  >
-                    Subscribed! Check your email for confirmation.
-                  </div>
-                )}
-                {heroSubscribeStatus === 'error' && (
-                  <div
-                    className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 text-sm rounded"
-                    role="alert"
-                    aria-live="assertive"
-                  >
-                    Something went wrong. Please try again.
-                  </div>
-                )}
-                <form onSubmit={handleHeroSubscribe} className="space-y-3">
-                  <input type="hidden" value="1" name="embed" />
-                  <input
-                    type="email"
-                    name="email"
-                    required
-                    placeholder="your@email.com"
-                    className="w-full px-4 py-2 text-sm bg-[var(--bg)] border border-[var(--border)] text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--text-main)] focus:border-[var(--text-main)] transition-all"
-                  />
-                  <button
-                    type="submit"
-                    disabled={heroSubscribeStatus === 'submitting'}
-                    className="w-full px-6 py-2 bg-[var(--text-main)] text-[var(--bg)] text-sm font-mono uppercase tracking-wider hover:opacity-80 transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[var(--text-main)] focus:ring-offset-2"
-                  >
-                    {heroSubscribeStatus === 'submitting' ? 'Subscribing...' : 'Subscribe'}
-                  </button>
-                </form>
-              </div>
+            {/* Right: Screenshot — bleeds to edge */}
+            <div className="lg:w-[60%] flex-shrink-0 self-stretch flex items-center ml-auto py-6 md:py-8">
+              <img
+                src="/img/atlas/edge-routing.png"
+                alt="AI Interaction Studio — visual workflow mapping interface showing environment, player, and enemy AI core loop nodes"
+                className="w-full h-full object-cover object-left"
+                loading="lazy"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Email Signup */}
+      <section className="px-4 md:px-8 max-w-screen-2xl mx-auto mt-12 mb-12">
+        <div className="px-6 py-5 md:px-8 md:py-5">
+          <div className="flex flex-col gap-4 max-w-sm mx-auto text-center">
+            <p className="text-base md:text-lg font-sans font-medium text-[var(--text-main)] leading-snug">
+              Stay updated on new patterns and get early access to emerging tools.
+            </p>
+
+            <div>
+              {heroSubscribeStatus === 'success' && (
+                <div
+                  className="mb-3 p-2.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 text-xs rounded"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  Subscribed! Check your email for confirmation.
+                </div>
+              )}
+              {heroSubscribeStatus === 'error' && (
+                <div
+                  className="mb-3 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 text-xs rounded"
+                  role="alert"
+                  aria-live="assertive"
+                >
+                  Something went wrong. Please try again.
+                </div>
+              )}
+              <form onSubmit={handleHeroSubscribe} className="space-y-2.5">
+                <input type="hidden" value="1" name="embed" />
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  placeholder="your@email.com"
+                  className="w-full px-3 py-1.5 text-xs bg-[var(--bg)] border border-[var(--border)] text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--text-main)] focus:border-[var(--text-main)] transition-all"
+                />
+                <button
+                  type="submit"
+                  disabled={heroSubscribeStatus === 'submitting'}
+                  className="w-full px-5 py-1.5 bg-[var(--text-main)] text-[var(--bg)] text-xs font-mono uppercase tracking-wider hover:opacity-80 transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[var(--text-main)] focus:ring-offset-2"
+                >
+                  {heroSubscribeStatus === 'submitting' ? 'Subscribing...' : 'Subscribe'}
+                </button>
+              </form>
             </div>
           </div>
         </div>
