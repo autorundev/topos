@@ -235,6 +235,7 @@ export const LandingPage = ({ onNavigate }: { onNavigate: (page: string) => void
               </div>
               <a
                 href="https://studio.ai-interaction.com"
+                onClick={() => trackEvent(EVENTS.STUDIO_CTA_CLICKED)}
                 className="inline-flex items-center gap-2 text-sm font-mono uppercase tracking-wider text-white border border-white/30 px-6 py-3 hover:bg-white/10 transition-all w-fit mt-8"
               >
                 Map your AI system <span aria-hidden="true">&rarr;</span>
