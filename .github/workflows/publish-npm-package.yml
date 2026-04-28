@@ -42,6 +42,11 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Upgrade npm CLI
+        # Trusted Publishing (OIDC) requires npm >= 11.5.1.
+        # Node 20 ships with npm 10, so we upgrade explicitly.
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         working-directory: atlas-package
         run: npm install
@@ -49,14 +54,6 @@ jobs:
       - name: Build package
         working-directory: atlas-package
         run: npm run build
-
-      - name: Verify npm authentication
-        working-directory: atlas-package
-        run: |
-          echo "Verifying npm authentication..."
-          npm whoami
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Validate package integrity
         working-directory: atlas-package
@@ -99,8 +96,6 @@ jobs:
           echo "Testing publish for version ${{ steps.new_version.outputs.version }}..."
           npm publish --dry-run --provenance --access public
           echo "✓ Dry run successful, proceeding with actual publish"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
         working-directory: atlas-package
@@ -108,8 +103,6 @@ jobs:
           echo "Publishing version ${{ steps.new_version.outputs.version }} to npm..."
           npm publish --provenance --access public
           echo "✓ Successfully published to npm!"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Generate publish summary
         if: success()
