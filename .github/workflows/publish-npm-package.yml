@@ -6,6 +6,7 @@ on:
     paths:
       - 'data/**'           # Trigger on source data changes
       - 'atlas-package/**'  # Trigger on package changes
+  workflow_dispatch:        # Allow manual runs from the Actions tab or `gh workflow run`
 
 jobs:
   publish:
