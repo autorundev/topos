@@ -408,7 +408,7 @@ export const AI_TASKS: AiTask[] = [
           } 
       },
       implementation_notes: { maturity: "established", typical_latency: "batch", data_requirements: "large", human_oversight: "recommended" },
-      ux_notes: { risk: "Missing key details or introducing bias", tip: "Allow length adjustment and highlight source attribution", anti_patterns: ["No way to trace claims back to sources"] },
+      ux_notes: { risk: "Missing key details or introducing bias", tip: "Allow length adjustment and highlight source attribution", anti_patterns: ["No way to trace claims back to sources", "Blending contradictory sources instead of surfacing conflict"] },
       capabilities: [
         { name: "Text Generation", tag: "text-generation", example: "Summarizing a long email thread into bullet points" },
         { name: "Summarization", tag: "summarization", example: "Generating a brief abstract for a research paper" },
@@ -438,7 +438,7 @@ export const AI_TASKS: AiTask[] = [
           } 
       },
       implementation_notes: { maturity: "emerging", typical_latency: "realtime", data_requirements: "large", human_oversight: "recommended" },
-      ux_notes: { risk: "False confidence in incorrect verdicts", tip: "Cite evidence sources directly", anti_patterns: ["Verifying creative writing", "Using for sentiment analysis"] },
+      ux_notes: { risk: "False confidence in incorrect verdicts", tip: "Cite evidence sources directly", anti_patterns: ["Verifying creative writing", "Using for sentiment analysis", "Verifying between contested sources with no ground truth"] },
       capabilities: [
         { name: "Zero-Shot Classification", tag: "zero-shot-classification", example: "Checking if a response contradicts the provided source text" },
         { name: "Question Answering", tag: "question-answering", example: "Verifying if the answer 'Yes' is supported by the policy document" },
