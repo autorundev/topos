@@ -265,7 +265,7 @@ export interface Example {
   nodes: Node[];
 }
 
-export interface AtlasData {
+export interface ToposData {
   meta: Meta;
   layers: Layer[];
   ai_tasks: AiTask[];

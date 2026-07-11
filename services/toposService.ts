@@ -1,5 +1,5 @@
 
-import { loadAtlasData, getCachedAtlasData } from '../lib/dataLoader';
+import { loadToposData, getCachedToposData } from '../lib/dataLoader';
 import {
   Task,
   AiTask,
@@ -12,7 +12,7 @@ import {
   WorkflowTemplate,
   Example,
   NodeType,
-  AtlasData
+  ToposData
 } from '../types';
 
 export type RelationshipType = 'upstream' | 'downstream' | 'lateral' | 'conflict';
@@ -39,14 +39,14 @@ export interface UnifiedSearchResult {
   artifact: Task | DataArtifactDefinition | ConstraintDefinition | TouchpointDefinition;
 }
 
-class AtlasService {
+class ToposService {
   private _allTasks: Task[] = [];
-  private _data: AtlasData | null = null;
+  private _data: ToposData | null = null;
   private _initPromise: Promise<void> | null = null;
-  private _suspensePromise: Promise<AtlasData> | null = null;
+  private _suspensePromise: Promise<ToposData> | null = null;
 
   /**
-   * Initialize the service with ATLAS_DATA (lazy loaded)
+   * Initialize the service with TOPOS_DATA (lazy loaded)
    * This is called automatically on first access
    */
   private async _ensureInitialized(): Promise<void> {
@@ -58,7 +58,7 @@ class AtlasService {
     }
 
     this._initPromise = (async () => {
-      this._data = await loadAtlasData();
+      this._data = await loadToposData();
 
       // Flatten tasks into a single lookup array for easier searching
       this._allTasks = [
@@ -75,8 +75,8 @@ class AtlasService {
    * Get data synchronously (for components with Suspense)
    * Throws a promise if data is not loaded (Suspense will catch it)
    */
-  private _getData(): AtlasData {
-    const cached = getCachedAtlasData();
+  private _getData(): ToposData {
+    const cached = getCachedToposData();
     if (cached) {
       if (!this._data) {
         this._data = cached;
@@ -97,7 +97,7 @@ class AtlasService {
     }
 
     // Create and cache the promise we'll throw
-    this._suspensePromise = loadAtlasData();
+    this._suspensePromise = loadToposData();
     throw this._suspensePromise;
   }
 
@@ -644,4 +644,4 @@ class AtlasService {
   }
 }
 
-export const atlasService = new AtlasService();
+export const toposService = new ToposService();

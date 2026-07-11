@@ -2,7 +2,7 @@
 
 ## Quick Reference
 
-The AI Interaction Atlas uses a CSS variable-based dark mode system with Tailwind v4. This guide helps you maintain consistent, accessible dark mode support.
+The AI Interaction Topos uses a CSS variable-based dark mode system with Tailwind v4. This guide helps you maintain consistent, accessible dark mode support.
 
 ---
 

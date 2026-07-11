@@ -1,22 +1,22 @@
-import { AtlasData } from '../types';
+import { ToposData } from '../types';
 
 /**
- * Lazy data loader for ATLAS_DATA
+ * Lazy data loader for TOPOS_DATA
  *
- * This module provides lazy loading for the large ATLAS_DATA object,
+ * This module provides lazy loading for the large TOPOS_DATA object,
  * which includes tasks, templates, artifacts, constraints, and touchpoints.
  *
  * Data is loaded on-demand and cached for subsequent accesses.
  */
 
-let cachedData: AtlasData | null = null;
-let loadingPromise: Promise<AtlasData> | null = null;
+let cachedData: ToposData | null = null;
+let loadingPromise: Promise<ToposData> | null = null;
 
 /**
- * Loads ATLAS_DATA dynamically and caches it
+ * Loads TOPOS_DATA dynamically and caches it
  * Subsequent calls return the cached data
  */
-export async function loadAtlasData(): Promise<AtlasData> {
+export async function loadToposData(): Promise<ToposData> {
   // Return cached data if available
   if (cachedData) {
     return cachedData;
@@ -54,7 +54,7 @@ export async function loadAtlasData(): Promise<AtlasData> {
         import('../data/examples')
       ]);
 
-      const data: AtlasData = {
+      const data: ToposData = {
         meta: META,
         layers: LAYERS,
         ai_tasks: AI_TASKS,
@@ -71,7 +71,7 @@ export async function loadAtlasData(): Promise<AtlasData> {
       loadingPromise = null;
       return data;
     } catch (error) {
-      console.error('Failed to load ATLAS_DATA:', error);
+      console.error('Failed to load TOPOS_DATA:', error);
       loadingPromise = null;
       throw error;
     }
@@ -81,12 +81,12 @@ export async function loadAtlasData(): Promise<AtlasData> {
 }
 
 /**
- * Preload ATLAS_DATA in the background
+ * Preload TOPOS_DATA in the background
  * Useful for routes that will likely need the data
  */
-export function preloadAtlasData() {
+export function preloadToposData() {
   if (!cachedData && !loadingPromise) {
-    loadAtlasData();
+    loadToposData();
   }
 }
 
@@ -94,13 +94,13 @@ export function preloadAtlasData() {
  * Get cached data synchronously (returns null if not loaded)
  * Use this for components that can handle undefined data
  */
-export function getCachedAtlasData(): AtlasData | null {
+export function getCachedToposData(): ToposData | null {
   return cachedData;
 }
 
 /**
  * Check if data is loaded
  */
-export function isAtlasDataLoaded(): boolean {
+export function isToposDataLoaded(): boolean {
   return cachedData !== null;
 }

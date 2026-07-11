@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { AtlasData } from './types';
+import { ToposData } from './types';
 import { META } from './data/meta';
 import { LAYERS } from './data/layers';
 import { AI_TASKS } from './data/ai_tasks';
@@ -26,7 +26,7 @@ import { TOUCHPOINTS } from './data/touchpoints';
 import { WORKFLOW_TEMPLATES } from './data/templates';
 import { EXAMPLES } from './data/examples';
 
-export const ATLAS_DATA: AtlasData = {
+export const TOPOS_DATA: ToposData = {
   meta: META,
   layers: LAYERS,
   ai_tasks: AI_TASKS,

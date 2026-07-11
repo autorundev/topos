@@ -70,48 +70,48 @@ const metaData = {
   layers: {},
   pages: {
     '/': {
-      title: 'AI Interaction Atlas - Open Source AI UX Reference',
+      title: 'AI Interaction Topos - Open Source AI UX Reference',
       description: 'Comprehensive reference for designing AI experiences. 100+ patterns, visual examples, and reusable components for AI UX designers and product teams.'
     },
-    '/atlas': {
-      title: 'Atlas Overview - AI Interaction Atlas',
+    '/topos': {
+      title: 'Topos Overview - AI Interaction Topos',
       description: 'Explore the complete taxonomy of AI interaction patterns. Browse by task type, layer, or capability.'
     },
-    '/atlas/ai': {
-      title: 'AI Tasks - AI Interaction Atlas',
+    '/topos/ai': {
+      title: 'AI Tasks - AI Interaction Topos',
       description: 'AI-driven tasks including detection, generation, classification, and more. Explore patterns for machine learning capabilities.'
     },
-    '/atlas/human': {
-      title: 'Human Actions - AI Interaction Atlas',
+    '/topos/human': {
+      title: 'Human Actions - AI Interaction Topos',
       description: 'Human-initiated actions in AI systems. Patterns for input, review, feedback, and human-in-the-loop workflows.'
     },
-    '/atlas/system': {
-      title: 'System Operations - AI Interaction Atlas',
+    '/topos/system': {
+      title: 'System Operations - AI Interaction Topos',
       description: 'System-level operations including data management, APIs, notifications, and infrastructure patterns.'
     },
-    '/atlas/data': {
-      title: 'Data Types - AI Interaction Atlas',
+    '/topos/data': {
+      title: 'Data Types - AI Interaction Topos',
       description: 'Data artifacts that flow through AI systems. Understand inputs, outputs, and intermediate data structures.'
     },
-    '/atlas/constraints': {
-      title: 'Constraints - AI Interaction Atlas',
+    '/topos/constraints': {
+      title: 'Constraints - AI Interaction Topos',
       description: 'Design constraints that shape AI interactions. Privacy, latency, accuracy, and other considerations.'
     },
-    '/atlas/touchpoints': {
-      title: 'Touchpoints - AI Interaction Atlas',
+    '/topos/touchpoints': {
+      title: 'Touchpoints - AI Interaction Topos',
       description: 'Interface touchpoints where humans and AI systems interact. Screens, voice, APIs, and more.'
     },
-    '/atlas/reference': {
-      title: 'Quick Reference - AI Interaction Atlas',
+    '/topos/reference': {
+      title: 'Quick Reference - AI Interaction Topos',
       description: 'Quick reference guide for AI interaction patterns. At-a-glance summaries and navigation.'
     },
     '/privacy': {
-      title: 'Privacy Policy - AI Interaction Atlas',
-      description: 'Privacy policy for the AI Interaction Atlas website.'
+      title: 'Privacy Policy - AI Interaction Topos',
+      description: 'Privacy policy for the AI Interaction Topos website.'
     },
     '/terms': {
-      title: 'Terms of Service - AI Interaction Atlas',
-      description: 'Terms of service for the AI Interaction Atlas website.'
+      title: 'Terms of Service - AI Interaction Topos',
+      description: 'Terms of service for the AI Interaction Topos website.'
     }
   }
 };
@@ -119,7 +119,7 @@ const metaData = {
 // Add all tasks
 [...aiTasks, ...humanTasks, ...systemTasks].forEach(task => {
   metaData.tasks[task.id] = {
-    title: `${task.name} - AI Interaction Atlas`,
+    title: `${task.name} - AI Interaction Topos`,
     description: task.description
   };
 });
@@ -127,7 +127,7 @@ const metaData = {
 // Add all layers
 layers.forEach(layer => {
   metaData.layers[layer.id] = {
-    title: `${layer.name} Layer - AI Interaction Atlas`,
+    title: `${layer.name} Layer - AI Interaction Topos`,
     description: layer.description
   };
 });

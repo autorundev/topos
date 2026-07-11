@@ -1,25 +1,25 @@
-# AI Interaction Atlas
+# AI Interaction Topos
 
-![AI Interaction Atlas](./public/OG.png)
+![AI Interaction Topos](./public/OG.png)
 
-[![npm version](https://img.shields.io/npm/v/@quietloudlab/ai-interaction-atlas)](https://www.npmjs.com/package/@quietloudlab/ai-interaction-atlas)
-[![npm downloads](https://img.shields.io/npm/dm/@quietloudlab/ai-interaction-atlas)](https://www.npmjs.com/package/@quietloudlab/ai-interaction-atlas)
+[![npm version](https://img.shields.io/npm/v/@quietloudlab/ai-interaction-topos)](https://www.npmjs.com/package/@quietloudlab/ai-interaction-topos)
+[![npm downloads](https://img.shields.io/npm/dm/@quietloudlab/ai-interaction-topos)](https://www.npmjs.com/package/@quietloudlab/ai-interaction-topos)
 [![Apache 2.0 License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Live Demo](https://img.shields.io/badge/demo-live-green.svg)](https://ai-interaction.com)
-[![GitHub](https://img.shields.io/github/stars/quietloudlab/ai-interaction-atlas?style=social)](https://github.com/quietloudlab/ai-interaction-atlas)
+[![GitHub](https://img.shields.io/github/stars/quietloudlab/ai-interaction-topos?style=social)](https://github.com/quietloudlab/ai-interaction-topos)
 
 A shared language for designing AI experiences across human actions, AI tasks, system operations, data, constraints, and touchpoints.
 
 ## NPM Package
 
-Use the Atlas data programmatically in your projects:
+Use the Topos data programmatically in your projects:
 
 ```bash
-npm install @quietloudlab/ai-interaction-atlas
+npm install @quietloudlab/ai-interaction-topos
 ```
 
 ```javascript
-import { AI_TASKS, searchPatterns, getAtlasStats } from '@quietloudlab/ai-interaction-atlas';
+import { AI_TASKS, searchPatterns, getToposStats } from '@quietloudlab/ai-interaction-topos';
 
 // Get all AI task patterns
 console.log(AI_TASKS);
@@ -27,15 +27,15 @@ console.log(AI_TASKS);
 // Search patterns by keyword
 const results = searchPatterns('review', { dimensions: ['human'] });
 
-// Get Atlas statistics
-console.log(getAtlasStats()); // { ai: 23, human: 19, system: 22, ... }
+// Get Topos statistics
+console.log(getToposStats()); // { ai: 23, human: 19, system: 22, ... }
 ```
 
-📦 [View on npm](https://www.npmjs.com/package/@quietloudlab/ai-interaction-atlas) | 📖 [Package Documentation](./atlas-package/README.md)
+📦 [View on npm](https://www.npmjs.com/package/@quietloudlab/ai-interaction-topos) | 📖 [Package Documentation](./topos-package/README.md)
 
-## What is the Atlas?
+## What is the Topos?
 
-The AI Interaction Atlas is an open-source taxonomy for AI interaction design. It provides a vocabulary for mapping roles, responsibilities, and decision points in AI systems—helping teams move beyond "User → Model → Output" and reason about complex, multi-step AI experiences.
+The AI Interaction Topos is an open-source taxonomy for AI interaction design. It provides a vocabulary for mapping roles, responsibilities, and decision points in AI systems—helping teams move beyond "User → Model → Output" and reason about complex, multi-step AI experiences.
 
 ### What it is
 
@@ -50,9 +50,9 @@ The AI Interaction Atlas is an open-source taxonomy for AI interaction design. I
 - Not prescriptive about solutions
 - Not tied to a single model or vendor
 
-## The Atlas Structure
+## The Topos Structure
 
-The Atlas organizes AI interactions into six core dimensions:
+The Topos organizes AI interactions into six core dimensions:
 
 - **AI Tasks** — What capabilities AI provides (classify, generate, verify, transform)
 - **Human Tasks** — What people do in the loop (review, approve, edit, compare)
@@ -72,8 +72,8 @@ The Atlas organizes AI interactions into six core dimensions:
 
 ```bash
 # Clone the repository
-git clone https://github.com/quietloudlab/ai-interaction-atlas.git
-cd ai-interaction-atlas
+git clone https://github.com/quietloudlab/ai-interaction-topos.git
+cd ai-interaction-topos
 
 # Install dependencies
 npm install
@@ -82,7 +82,7 @@ npm install
 npm run dev
 ```
 
-Visit `http://localhost:5173` to view the Atlas locally.
+Visit `http://localhost:5173` to view the Topos locally.
 
 ### Building for Production
 
@@ -93,7 +93,7 @@ npm run preview
 
 ## Contributing
 
-Contributions are welcome! The Atlas is incomplete and will always be incomplete—AI interaction design is still forming as a discipline.
+Contributions are welcome! The Topos is incomplete and will always be incomplete—AI interaction design is still forming as a discipline.
 
 Having _some_ shared vocabulary is better than having none. If you have patterns, examples, or improvements to suggest:
 
@@ -114,6 +114,6 @@ Created by [Brandon Harwood](https://www.linkedin.com/in/brandon-harwood/) at [q
 
 ## Learn More
 
-- [Read the rationale](https://ai-interaction.com/rationale) - Why the Atlas exists
-- [Browse the Atlas](https://ai-interaction.com/atlas) - Explore the full taxonomy
-- [View on GitHub](https://github.com/quietloudlab/ai-interaction-atlas) - Contribute to the project
+- [Read the rationale](https://ai-interaction.com/rationale) - Why the Topos exists
+- [Browse the Topos](https://ai-interaction.com/topos) - Explore the full taxonomy
+- [View on GitHub](https://github.com/quietloudlab/ai-interaction-topos) - Contribute to the project

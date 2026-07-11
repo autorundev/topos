@@ -2,8 +2,8 @@
 import { Meta } from '../types';
 
 export const META: Meta = {
-  title: "AI Interaction Atlas",
-  description: "A comprehensive library of interaction patterns for designing human-centered AI systems.",
-  version: "1.0",
+  title: "Topos",
+  description: "Карта архитектуры и логики VectorOS: одна машина, много входов и выходов. Любое изменение данных (write) триггерит детекторы → gate → starter → единый ум → эффект (= новый write). Проактива как отдельного пайплайна нет.",
+  version: "0.1",
   schema_version: "1.1.0"
 };

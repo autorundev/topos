@@ -1,5 +1,5 @@
 /**
- * Generate sitemap.xml for AI Interaction Atlas
+ * Generate sitemap.xml for AI Interaction Topos
  * Includes all static pages, task pages, and layer pages
  */
 
@@ -7,7 +7,7 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { loadAtlasData } from '../lib/dataLoader';
+import { loadToposData } from '../lib/dataLoader';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,14 +20,14 @@ const staticPages = [
   { url: '/', priority: '1.0', changefreq: 'weekly' },
   { url: '/privacy', priority: '0.3', changefreq: 'monthly' },
   { url: '/terms', priority: '0.3', changefreq: 'monthly' },
-  { url: '/atlas', priority: '1.0', changefreq: 'weekly' },
-  { url: '/atlas/ai', priority: '0.9', changefreq: 'weekly' },
-  { url: '/atlas/human', priority: '0.9', changefreq: 'weekly' },
-  { url: '/atlas/system', priority: '0.9', changefreq: 'weekly' },
-  { url: '/atlas/data', priority: '0.9', changefreq: 'weekly' },
-  { url: '/atlas/constraints', priority: '0.9', changefreq: 'weekly' },
-  { url: '/atlas/touchpoints', priority: '0.9', changefreq: 'weekly' },
-  { url: '/atlas/reference', priority: '0.8', changefreq: 'weekly' },
+  { url: '/topos', priority: '1.0', changefreq: 'weekly' },
+  { url: '/topos/ai', priority: '0.9', changefreq: 'weekly' },
+  { url: '/topos/human', priority: '0.9', changefreq: 'weekly' },
+  { url: '/topos/system', priority: '0.9', changefreq: 'weekly' },
+  { url: '/topos/data', priority: '0.9', changefreq: 'weekly' },
+  { url: '/topos/constraints', priority: '0.9', changefreq: 'weekly' },
+  { url: '/topos/touchpoints', priority: '0.9', changefreq: 'weekly' },
+  { url: '/topos/reference', priority: '0.8', changefreq: 'weekly' },
 ];
 
 function escapeXml(str: string): string {
@@ -55,8 +55,8 @@ function generateUrlEntry(url: string, priority: string = '0.8', changefreq: str
 async function generateSitemap(): Promise<void> {
   console.log('🗺️  Generating sitemap...');
 
-  // Load atlas data
-  const data = await loadAtlasData();
+  // Load topos data
+  const data = await loadToposData();
 
   const urls: string[] = [];
 
@@ -67,13 +67,13 @@ async function generateSitemap(): Promise<void> {
 
   // Add layer pages
   data.layers.forEach(layer => {
-    urls.push(generateUrlEntry(`/atlas/layer/${layer.id}`, '0.8', 'weekly'));
+    urls.push(generateUrlEntry(`/topos/layer/${layer.id}`, '0.8', 'weekly'));
   });
 
   // Add task pages
   const allTasks = [...data.ai_tasks, ...data.human_tasks, ...data.system_tasks];
   allTasks.forEach(task => {
-    urls.push(generateUrlEntry(`/atlas/task/${task.id}`, '0.7', 'weekly'));
+    urls.push(generateUrlEntry(`/topos/task/${task.id}`, '0.7', 'weekly'));
   });
 
   // Generate XML

@@ -1,12 +1,12 @@
-# Contributing to AI Interaction Atlas
+# Contributing to AI Interaction Topos
 
-Thank you for your interest in contributing to the AI Interaction Atlas! This project aims to create a shared vocabulary for designing AI experiences, and we welcome contributions from the community.
+Thank you for your interest in contributing to the AI Interaction Topos! This project aims to create a shared vocabulary for designing AI experiences, and we welcome contributions from the community.
 
 ## How to Contribute
 
 ### Suggesting New Patterns
 
-The Atlas is incomplete by design—AI interaction design is still forming as a discipline. If you have patterns, examples, or improvements to suggest:
+The Topos is incomplete by design—AI interaction design is still forming as a discipline. If you have patterns, examples, or improvements to suggest:
 
 1. **Check existing issues** - See if someone else has already suggested something similar
 2. **Open an issue** - Use the "Pattern Suggestion" template to describe your proposed pattern
@@ -26,7 +26,7 @@ If you find a bug in the website or documentation:
 
 ### Suggesting Features
 
-Have an idea for improving the Atlas?
+Have an idea for improving the Topos?
 
 1. **Open an issue** - Use the "Feature Request" template
 2. **Describe the use case** - Explain what problem this solves
@@ -43,8 +43,8 @@ Have an idea for improving the Atlas?
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR-USERNAME/ai-interaction-atlas.git
-cd ai-interaction-atlas
+git clone https://github.com/YOUR-USERNAME/ai-interaction-topos.git
+cd ai-interaction-topos
 
 # Install dependencies
 npm install
@@ -67,8 +67,8 @@ Visit `http://localhost:5173` to see your changes.
 ## Project Structure
 
 ```
-/data/              # Atlas taxonomy data (tasks, constraints, touchpoints, etc.)
-/features/          # Feature-based React components (atlas, marketing, etc.)
+/data/              # Topos taxonomy data (tasks, constraints, touchpoints, etc.)
+/features/          # Feature-based React components (topos, marketing, etc.)
 /components/        # Shared React components
 /src/               # Assets (images, etc.)
 /types.ts           # TypeScript type definitions
@@ -89,7 +89,7 @@ Follow the existing structure and TypeScript types when adding new patterns.
 
 ### Pattern Admission Criteria
 
-Not every useful concept earns a new top-level pattern. The Atlas stays useful by staying small - every task it names should be one a designer can recognize, reach for, and distinguish from its neighbors. Before proposing a new **AI Task**, **Human Task**, or **System Task**, check it against the four conditions below. If it doesn't clear them, that usually doesn't mean the idea is wrong - it often means it belongs as guidance on an existing pattern, or as a workflow that composes existing ones.
+Not every useful concept earns a new top-level pattern. The Topos stays useful by staying small - every task it names should be one a designer can recognize, reach for, and distinguish from its neighbors. Before proposing a new **AI Task**, **Human Task**, or **System Task**, check it against the four conditions below. If it doesn't clear them, that usually doesn't mean the idea is wrong - it often means it belongs as guidance on an existing pattern, or as a workflow that composes existing ones.
 
 **1. Grounding - can you name the capability it runs on?**
 
@@ -126,7 +126,7 @@ These conditions were established through review and are best understood through
 - **Delegate Authority** (accepted) - granting an AI agent bounded authority to act. Sat at the overlap threshold with its nearest neighbor but diverged on the substantive axes (what it transfers, what authority it carries), which is the heavy-divergence exception in practice.
 - **Reconcile** (declined) - resolving conflicts between two equally-authoritative sources. Declined because it fails grounding: every model that resolves conflict collapses the symmetry into classification or ranking once trained, so "both sources are equals" is something the human brings to the situation, not an operation a model performs. Its real contribution - the silent-wrong-winner failure mode - landed instead as anti-patterns on the two tasks designers would otherwise misuse.
 
-A concept that doesn't become a task is not a rejected contribution. In each case above, the insight reached the Atlas - the question was only what *form* it should take.
+A concept that doesn't become a task is not a rejected contribution. In each case above, the insight reached the Topos - the question was only what *form* it should take.
 
 ## Code Style
 
@@ -156,12 +156,12 @@ A concept that doesn't become a task is not a rejected contribution. In each cas
 
 If you have questions about contributing:
 
-- Open a [GitHub Discussion](https://github.com/quietloudlab/ai-interaction-atlas/discussions)
+- Open a [GitHub Discussion](https://github.com/quietloudlab/ai-interaction-topos/discussions)
 - Email: brandon@quietloudlab.com
 
 ## License
 
-By contributing to the AI Interaction Atlas, you agree that your contributions will be licensed under the Apache License 2.0.
+By contributing to the AI Interaction Topos, you agree that your contributions will be licensed under the Apache License 2.0.
 
 ---
 

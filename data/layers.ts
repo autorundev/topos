@@ -6,19 +6,16 @@ export const LAYERS: Layer[] = [
     id: "layer_inbound",
     name: "Inbound",
     slug: "inbound",
-    label: "Sensing",
-    role: "Sensing & Structuring",
-    description:
-      "How the system perceives inputs from people and the environment, and converts them into usable signals and structured artifacts.",
-    color: "#4A8A3F",
+    label: "01",
+    role: "Данные меняются (write)",
+    color: "#3b6ea5",
+    description: "Всё — write в общий лог, РАВНОПРАВНО: сообщение юзера === sync коннектора === крон === собственный эффект Vector. Каждый write триггерит детекторы. Нет «реактивного» и «проактивного» входа — есть просто изменение данных.",
     guidance: {
-      when_to_use:
-        "When handling raw inputs (text, files, audio, images, sensors) or converting unstructured content into structured forms.",
-      typical_position: "Start of flow (or any time new input enters the system).",
+      when_to_use: "Точка входа стимула",
+      typical_position: "слева",
       red_flags: [
-        "Assuming input is already clean or structured",
-        "Ignoring noise, ambiguity, or missing context",
-        "No provenance (unclear sources / missing grounding)"
+        "Параллельный вход мимо write-bus",
+        "Привилегия юзер-сообщения на ингрессе (супернуто §0.3 A → gate_mode)"
       ]
     }
   },
@@ -26,19 +23,17 @@ export const LAYERS: Layer[] = [
     id: "layer_internal",
     name: "Internal",
     slug: "internal",
-    label: "Reasoning",
-    role: "Reasoning & Deciding",
-    description:
-      "Model reasoning, scoring, and deterministic business logic that decides what happens next.",
-    color: "#3D6B8F",
+    label: "02",
+    role: "Что происходит внутри",
+    color: "#7a5cc4",
+    description: "Reduce (41 детектор-reducer) → gate (admission по gate_mode) → aggregate (starter-recipe) → the one brain (_run_agent_inner) с read-only тулами → построение графа (link_entities, dream batch) → ночной цикл. Всё читает vault-субстрат (~65 таблиц).",
     guidance: {
-      when_to_use:
-        "When the system must interpret signals, compare options, apply rules, verify constraints, or make decisions under uncertainty.",
-      typical_position: "Middle of flow (can repeat multiple times).",
+      when_to_use: "Обработка, суждение, память",
+      typical_position: "центр",
       red_flags: [
-        "Black-box decisions without an explanation path",
-        "Undefined thresholds (confidence, risk, cost, eligibility)",
-        "Unclear decision ownership (AI vs rules vs human)"
+        "Второй ум / арбитр в коде",
+        "Haiku пре-гейт перед гарантированным Sonnet-ходом",
+        "Детектор пишет / зовёт LLM / рекомпутит state"
       ]
     }
   },
@@ -46,40 +41,16 @@ export const LAYERS: Layer[] = [
     id: "layer_outbound",
     name: "Outbound",
     slug: "outbound",
-    label: "Expressing",
-    role: "Expressing & Creating",
-    description:
-      "How the system produces outputs—content, recommendations, summaries, transformations—and communicates them to people or other systems.",
-    color: "#8F3D3D",
+    label: "03",
+    role: "Что уходит наружу",
+    color: "#42c48a",
+    description: "actuate_effect — один egress-гейт: send в чат, vault/calendar-write, с audience-render + confirm(необратимое/non-self) + cost-cap + safety-pierce. Эффект — сам write, петлёй возвращается входом следующего цикла.",
     guidance: {
-      when_to_use:
-        "When presenting results, generating or transforming content, creating artifacts, or preparing outputs for downstream systems.",
-      typical_position: "End of a loop or step (often followed by user response).",
+      when_to_use: "Любое внешнее действие",
+      typical_position: "справа",
       red_flags: [
-        "Ungrounded outputs (no citations, weak linkage to evidence)",
-        "Overwhelming detail with no controllable level-of-detail",
-        "No affordance for correction, editing, or safe fallback"
-      ]
-    }
-  },
-  {
-    id: "layer_interactive",
-    name: "Interactive",
-    slug: "interactive",
-    label: "Acting",
-    role: "Acting & Learning",
-    description:
-      "Closed-loop behavior over time: actions, feedback, adaptation, monitoring, and state updates (simulate → plan → act → observe → update).",
-    color: "#8F6E3D",
-    guidance: {
-      when_to_use:
-        "When the system acts in an environment, adapts from feedback, runs experiments, maintains state across sessions, or monitors drift/performance.",
-      typical_position: "Continuous loop or background lifecycle.",
-      red_flags: [
-        "Ignoring feedback signals (explicit or implicit)",
-        "No rollback/stop mechanism or rate limits (runaway loops)",
-        "Model drift without monitoring + triggers",
-        "Unsafe actions without human control points"
+        "Ответ в группу мимо confirm (утечка приватного vault)",
+        "Необратимый эффект без confirm"
       ]
     }
   }

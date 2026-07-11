@@ -1,95 +1,82 @@
 
 import { Example } from '../types';
 
+// ОДИН цикл, НЕ четыре машины. «Процессы» = разные точки ВХОДА (какой write)
+// и ВЫХОДА (какой effect) в один backbone:
+//   [любой write] → detectors → gate → starter → brain → effect (= write ↺)
 export const EXAMPLES: Example[] = [
   {
-    id: "ex_rag_chatbot",
-    primary_task_id: "task_retrieve",
-    title: "Enterprise Knowledge Bot (RAG)",
-    description: "A secure internal chatbot that answers employee questions by retrieving policy documents, ranking them for relevance, and generating citations.",
-    industry: "Enterprise",
-    complexity: "Medium",
-    tags: ["RAG", "Search", "Internal Tools"],
-    image_url: "https://images.unsplash.com/photo-1555421689-d68471e18963?auto=format&fit=crop&q=80&w=1000",
+    id: "flow_loop", primary_task_id: "brain_core",
+    title: "0 · Единый цикл (одна машина)",
+    description: "Любой write → детекторы → гейт → starter → ум → эффект (= новый write ↺). Проактива нет: это один и тот же путь для чата, коннекторов и кронов.",
+    industry: "core", complexity: "High", tags: ["single-brain", "write-bus", "no-proactive"],
+    image_url: "",
     nodes: [
-      { task_id: "human_type_input", x: 0, y: 0, label: "Employee Query" },
-      { task_id: "task_represent", x: 300, y: 0, label: "Embed Query" },
-      { task_id: "task_retrieve", x: 600, y: 0, label: "Vector Search" },
-      { task_id: "task_rank", x: 900, y: 0, label: "Re-Rank Results" },
-      { task_id: "task_generate", x: 1200, y: 0, label: "Synthesize Answer" },
-      { task_id: "tp_chat", x: 1500, y: 0, label: "Slack Interface" }
+      { task_id: "det_detectors", x: 350, y: 0, label: "detectors (reduce every write)" },
+      { task_id: "gate_admission", x: 720, y: 0, label: "gate (mode per write)" },
+      { task_id: "starter_recipe", x: 1050, y: 0, label: "starter (aggregation)" },
+      { task_id: "brain_core", x: 1380, y: 0, label: "the one brain" },
+      { task_id: "eff_respond", x: 1720, y: 0, label: "effect = write ↺" }
     ]
   },
   {
-    id: "ex_content_mod",
-    primary_task_id: "task_classify",
-    title: "Automated Content Moderation",
-    description: "A high-throughput pipeline for social platforms that filters toxic content using a hybrid AI + Human-in-the-loop approach.",
-    industry: "Consumer",
-    complexity: "High",
-    tags: ["Safety", "Classification", "HITL"],
-    image_url: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=1000",
+    id: "view_chat", primary_task_id: "trig_user_message",
+    title: "Вход: сообщение юзера",
+    description: "Тот же цикл. Вход — user-write (gate_mode=always_open, гарантированно доходит), выход — send.",
+    industry: "entry", complexity: "Low", tags: ["always_open", "entry"],
+    image_url: "",
     nodes: [
-      { task_id: "system_webhook", x: 0, y: 0, label: "New Post Hook" },
-      { task_id: "task_classify", x: 300, y: 0, label: "Toxicity Check" },
-      { task_id: "system_rules", x: 600, y: 0, label: "Confidence Gate" },
-      { task_id: "system_save_db", x: 900, y: -150, label: "Auto-Publish (Safe)" },
-      { task_id: "human_review", x: 900, y: 150, label: "Manual Review (Flagged)" },
-      { task_id: "system_notification", x: 1200, y: 150, label: "Ban User" }
+      { task_id: "trig_user_message", x: 0, y: 0, label: "message = write" },
+      { task_id: "det_detectors", x: 350, y: 0, label: "→ тот же backbone" },
+      { task_id: "eff_respond", x: 1720, y: 0, label: "send" }
     ]
   },
   {
-    id: "ex_voice_assistant",
-    primary_task_id: "task_translate",
-    title: "Drive-Thru Voice Agent",
-    description: "A low-latency voice pipeline designed for noisy environments, handling speech-to-text, order logic, and text-to-speech synthesis.",
-    industry: "Food & Bev",
-    complexity: "High",
-    tags: ["Audio", "Real-time", "Voice"],
-    image_url: "https://images.unsplash.com/photo-1593508512255-86ab42a8e620?auto=format&fit=crop&q=80&w=1000",
+    id: "view_connector", primary_task_id: "trig_connector_sync",
+    title: "Вход: sync коннектора",
+    description: "Неотличим от сообщения юзера по природе; gate_mode=selective. Тот же backbone.",
+    industry: "entry", complexity: "Low", tags: ["selective", "entry"],
+    image_url: "",
     nodes: [
-      { task_id: "data_audio_stream", x: 0, y: 0, label: "Mic Input" },
-      { task_id: "task_translate", x: 300, y: 0, label: "Speech-to-Text (Whisper)" },
-      { task_id: "task_classify", x: 600, y: 0, label: "Intent Detection" },
-      { task_id: "system_api", x: 900, y: 0, label: "POS System" },
-      { task_id: "task_generate", x: 1200, y: 0, label: "Generate Confirmation" },
-      { task_id: "task_translate", x: 1500, y: 0, label: "Text-to-Speech" }
+      { task_id: "trig_connector_sync", x: 0, y: 0, label: "sync = write" },
+      { task_id: "det_detectors", x: 350, y: 0, label: "→ тот же backbone" }
     ]
   },
   {
-    id: "ex_fraud_detection",
-    primary_task_id: "task_detect",
-    title: "Financial Fraud Detection",
-    description: "Real-time transaction monitoring system that detects anomalies and triggers identity verification challenges.",
-    industry: "Fintech",
-    complexity: "High",
-    tags: ["Security", "Analysis", "Finance"],
-    image_url: "https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&q=80&w=1000",
+    id: "view_cron", primary_task_id: "trig_cron",
+    title: "Вход: крон / каденция",
+    description: "Тик времени = write; gate_mode=selective. Тот же backbone.",
+    industry: "entry", complexity: "Low", tags: ["selective", "clock", "entry"],
+    image_url: "",
     nodes: [
-      { task_id: "system_webhook", x: 0, y: 0, label: "Transaction Event" },
-      { task_id: "task_monitor", x: 300, y: 0, label: "Anomaly Detector" },
-      { task_id: "system_rules", x: 600, y: 0, label: "Risk Score Check" },
-      { task_id: "system_api", x: 900, y: -100, label: "Approve (Low Risk)" },
-      { task_id: "system_notification", x: 900, y: 100, label: "Trigger 2FA (High Risk)" },
-      { task_id: "human_review", x: 1200, y: 100, label: "Fraud Analyst Case" }
+      { task_id: "trig_cron", x: 0, y: 0, label: "cron tick = write" },
+      { task_id: "det_detectors", x: 350, y: 0, label: "→ тот же backbone" }
     ]
   },
   {
-    id: "ex_predictive_maint",
-    primary_task_id: "task_forecast",
-    title: "IoT Predictive Maintenance",
-    description: "Analyzing sensor telemetry from manufacturing equipment to forecast failures before they happen.",
-    industry: "IoT",
-    complexity: "Medium",
-    tags: ["IoT", "Forecasting", "Industrial"],
-    image_url: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=1000",
+    id: "view_graph", primary_task_id: "eff_link_entities",
+    title: "Выход: рёбра графа",
+    description: "Тот же цикл, где эффект — запись edge (link_entities). Тяжёлое семантическое связывание уходит в ночной batch.",
+    industry: "exit", complexity: "Medium", tags: ["graph", "provenance", "exit"],
+    image_url: "",
     nodes: [
-      { task_id: "data_sensor_stream", x: 0, y: 0, label: "Vibration Sensors" },
-      { task_id: "system_load_db", x: 0, y: 150, label: "Maintenance Logs" },
-      { task_id: "task_regress", x: 300, y: 75, label: "Predict Failure Probability" },
-      { task_id: "task_forecast", x: 600, y: 75, label: "Time-to-Failure" },
-      { task_id: "system_rules", x: 900, y: 75, label: "Threshold Check" },
-      { task_id: "system_api", x: 1200, y: 75, label: "Schedule Repair Ticket" }
+      { task_id: "eff_link_entities", x: 1720, y: 150, label: "effect = edge-write" },
+      { task_id: "proc_nightly", x: 2080, y: 150, label: "dream batch-judge" },
+      { task_id: "human_confirm", x: 2080, y: 300, label: "confirm-to-edge" },
+      { task_id: "store_links", x: 2440, y: 150, label: "links (typed edges)" }
+    ]
+  },
+  {
+    id: "view_nightly", primary_task_id: "proc_nightly",
+    title: "Ночной цикл",
+    description: "Тот же цикл, вход — nightly cron-write. Batch-эффекты: семантические рёбра + self-reflection → готовят утренний starter.",
+    industry: "exit", complexity: "Medium", tags: ["nightly", "batch", "exit"],
+    image_url: "",
+    nodes: [
+      { task_id: "trig_cron", x: 0, y: 450, label: "nightly cron = write" },
+      { task_id: "proc_nightly", x: 1720, y: 450, label: "dream + reflection" },
+      { task_id: "store_links", x: 2080, y: 410, label: "semantic edges" },
+      { task_id: "starter_recipe", x: 2080, y: 540, label: "→ morning prep" }
     ]
   }
 ];

@@ -1,6 +1,6 @@
 ---
 name: Pattern Suggestion
-about: Suggest a new AI interaction pattern for the Atlas
+about: Suggest a new AI interaction pattern for the Topos
 title: '[PATTERN] '
 labels: 'pattern-suggestion'
 assignees: ''
@@ -28,7 +28,7 @@ assignees: ''
 <!-- Any technical considerations, common pitfalls, or best practices -->
 
 ## Related Patterns
-<!-- List any existing Atlas patterns this relates to or depends on -->
+<!-- List any existing Topos patterns this relates to or depends on -->
 
 ## Additional Context
 <!-- Any other information, links to examples, or screenshots -->

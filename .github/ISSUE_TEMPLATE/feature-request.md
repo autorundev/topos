@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a new feature or improvement for the Atlas
+about: Suggest a new feature or improvement for the Topos
 title: '[FEATURE] '
 labels: 'enhancement'
 assignees: ''
