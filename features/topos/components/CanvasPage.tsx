@@ -4,6 +4,7 @@ import {
   type Node, type Edge, type NodeProps, MarkerType, Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import ELK from 'elkjs/lib/elk.bundled.js';
 import {
   LogIn, Radar, Filter, Layers, BrainCircuit, Wrench, Send,
   Database, Moon, Sun, CircleCheck, Share2, Box, X,
@@ -13,35 +14,20 @@ import { TOPOS_DATA } from '../../../data';
 import { useDarkMode } from '../../../hooks/useDarkMode';
 import type { Task, IOItem } from '../../../types';
 
-// Layout: left→right = inbound→outbound. Outbound pushed clear of internal so zones don't overlap.
-const POS: Record<string, { x: number; y: number }> = {
-  trig_user_message:   { x: 0,    y: -185 },
-  trig_connector_sync: { x: 0,    y: 0 },
-  trig_cron:           { x: 0,    y: 185 },
-  det_detectors:       { x: 350,  y: -10 },
-  gate_admission:      { x: 720,  y: 0 },
-  starter_recipe:      { x: 1060, y: 0 },
-  tool_retrieve:       { x: 1060, y: 210 },
-  brain_core:          { x: 1400, y: 0 },
-  eff_link_entities:   { x: 1740, y: -195 },
-  proc_nightly:        { x: 1740, y: 210 },
-  eff_respond:         { x: 2360, y: 0 },
-  human_confirm:       { x: 2360, y: 210 },
-  store_conversation:  { x: 520,  y: 470 },
-  store_focuses:       { x: 870,  y: 470 },
-  store_vault:         { x: 1210, y: 470 },
-  store_memories:      { x: 1560, y: 470 },
-  store_links:         { x: 1900, y: 470 },
-};
-const NODE_W = 210, NODE_H = 66;
+const NODE_W = 210;
+type XY = { x: number; y: number };
+type Pos = Record<string, XY>;
+
+// left→right pipeline: inbound → internal → outbound. ELK partitions keep zones apart.
+const LAYER_ORDER: Record<string, number> = { layer_inbound: 0, layer_internal: 1, layer_outbound: 2 };
 
 const EDGE_COLOR: Record<string, string> = {
-  writes_to: '#59708a', reduces: '#7a5cc4', wakes: '#e6a63c', actuates: '#42c48a',
-  precedes: '#3b6ea5', enables: '#3b6ea5', requires_input_from: '#8a8f98',
+  writes_to: '#59708a', reads_from: '#3fb6c9', reduces: '#7a5cc4', wakes: '#e6a63c',
+  actuates: '#42c48a', precedes: '#3b6ea5', enables: '#3b6ea5', requires_input_from: '#8a8f98',
 };
 const EDGE_LEGEND = [
-  ['writes_to', 'пишет в лог'], ['reduces', 'детектор-reducer'], ['wakes', 'будит ум'],
-  ['actuates', 'эффект'], ['enables / precedes', 'поток'], ['requires_input_from', 'тянет'],
+  ['writes_to', 'пишет в стор'], ['reads_from', 'читает из стора'], ['reduces', 'детектор-reducer'],
+  ['wakes', 'будит ум'], ['actuates', 'эффект'], ['enables / precedes', 'поток'], ['requires_input_from', 'тянет'],
 ] as const;
 const BADGES: Record<string, string[]> = {
   trig_user_message: ['always_open'], trig_connector_sync: ['selective'], trig_cron: ['selective', 'clock'],
@@ -51,6 +37,7 @@ const BADGES: Record<string, string[]> = {
   store_links: ['provenance', 'confirmed'],
 };
 const isStore = (id: string) => id.startsWith('store_');
+const isStoreEdgeType = (t: string) => t === 'writes_to' || t === 'reads_from';
 const SIDE_POS: Record<string, Position> = { l: Position.Left, r: Position.Right, t: Position.Top, b: Position.Bottom };
 
 function kindOf(t: Task): { icon: React.ComponentType<{ size?: number }>; kind: string } {
@@ -72,45 +59,116 @@ const layerColor = (id: string) => toposService.getLayerById(id)?.color ?? '#666
 const ioLabel = (i: IOItem) => (typeof i === 'string' ? i : i.label);
 const hStyle = (c: string): React.CSSProperties => ({ background: c, border: 'none', width: 6, height: 6, opacity: 0.85 });
 
-// side selection: writes drop into store-top; backward loops under; else by dominant axis.
-function sideFor(tid: string, s?: { x: number; y: number }, t?: { x: number; y: number }) {
-  if (!s || !t) return { ss: 'r', ts: 'l', back: false };
-  if (isStore(tid)) return { ss: 'b', ts: 't', back: false };
-  const dx = t.x - s.x, dy = t.y - s.y;
-  if (t.x < s.x - 60) return { ss: 'b', ts: dy > 100 ? 't' : 'b', back: true };
-  if (Math.abs(dy) > Math.abs(dx) && dy > 60) return { ss: 'b', ts: 't', back: false };
-  if (Math.abs(dy) > Math.abs(dx) && dy < -60) return { ss: 't', ts: 'b', back: false };
-  return { ss: 'r', ts: 'l', back: false };
+// approximate rendered height so ELK reserves the right vertical space per node.
+function nodeH(t: Task): number {
+  let h = 56;
+  const fams = t.id === 'det_detectors' ? (t.common_variants ?? []).filter(v => v.includes('×')).length : 0;
+  h += fams * 20;
+  if ((BADGES[t.id] ?? []).length) h += 22;
+  return h;
 }
 
-type EdgeSpec = { id: string; source: string; target: string; rel: any; ss: string; ts: string; back: boolean; sourceHandle?: string; targetHandle?: string };
+// ═══════════════ auto-layout (ELK) — runs once, no hand-tuned coords ═══════════════
+type RawEdge = { id: string; source: string; target: string; rel: any };
+
+function rawEdges(tasks: Task[], idSet: Set<string>): RawEdge[] {
+  const out: RawEdge[] = [];
+  tasks.forEach(t => (t.relations ?? []).forEach((r, i) => {
+    if (!idSet.has(r.target_id)) return;
+    out.push({ id: `${t.id}-${r.target_id}-${i}`, source: t.id, target: r.target_id, rel: r });
+  }));
+  return out;
+}
+
+const elk = new ELK();
+
+async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<Pos> {
+  const graph = {
+    id: 'root',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'RIGHT',
+      'elk.partitioning.activate': 'true',
+      'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      'elk.spacing.nodeNode': '46',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '120',
+      'elk.spacing.edgeNode': '26',
+      'elk.spacing.edgeEdge': '14',
+      'elk.layered.spacing.edgeEdgeBetweenLayers': '14',
+    },
+    children: tasks.map(t => ({
+      id: t.id, width: NODE_W, height: nodeH(t),
+      layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1) },
+    })),
+    edges: edges.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] })),
+  };
+  const res: any = await elk.layout(graph as any);
+  const pos: Pos = {};
+  (res.children ?? []).forEach((c: any) => { pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 }; });
+  return pos;
+}
+
+// force a fixed gutter between the three layer-zones so groups never overlap.
+function applyZoneGutter(pos: Pos, tasks: Task[], gutter = 150) {
+  const byLayer: Record<number, string[]> = {};
+  tasks.forEach(t => { const l = LAYER_ORDER[t.layer_id] ?? 1; (byLayer[l] ??= []).push(t.id); });
+  const layerKeys = Object.keys(byLayer).map(Number).sort((a, b) => a - b);
+  let prevRight = -Infinity;
+  layerKeys.forEach(l => {
+    const ids = byLayer[l];
+    const minX = Math.min(...ids.map(id => pos[id].x));
+    let shift = 0;
+    if (prevRight > -Infinity) shift = (prevRight + gutter) - minX;
+    if (shift) ids.forEach(id => { pos[id].x += shift; });
+    prevRight = Math.max(...ids.map(id => pos[id].x + NODE_W));
+  });
+}
+
+// ═══════════════ per-edge port allocation (source+target on one side never collide) ═══════════════
+// pure geometry: rightward = flow; leftward = feedback routed under; vertical = top/bottom.
+function sideFor(s?: XY, t?: XY) {
+  if (!s || !t) return { ss: 'r', ts: 'l', back: false };
+  const dx = t.x - s.x, dy = t.y - s.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    if (dx < -40) return { ss: 'b', ts: 'b', back: true };   // feedback loop → U-route under
+    return { ss: 'r', ts: 'l', back: false };                // forward flow →
+  }
+  return dy > 0 ? { ss: 'b', ts: 't', back: false }          // downward ↓
+                : { ss: 't', ts: 'b', back: false };         // upward ↑
+}
+
+type EdgeSpec = RawEdge & { ss: string; ts: string; back: boolean; sourceHandle?: string; targetHandle?: string };
 type HandleSpec = { id: string; kind: 'source' | 'target'; side: string; pct: number };
 
-// Build edges + allocate a distinct port per edge on each node side (no shared ports).
-function buildGraph(tasks: Task[], idSet: Set<string>) {
-  const raw: EdgeSpec[] = [];
-  tasks.forEach((t) => (t.relations ?? []).forEach((r, i) => {
-    if (!idSet.has(r.target_id)) return;
-    const { ss, ts, back } = sideFor(r.target_id, POS[t.id], POS[r.target_id]);
-    raw.push({ id: `${t.id}-${r.target_id}-${i}`, source: t.id, target: r.target_id, rel: r, ss, ts, back });
-  }));
-  const srcG: Record<string, EdgeSpec[]> = {}, tgtG: Record<string, EdgeSpec[]> = {};
-  raw.forEach((e) => { (srcG[`${e.source}|${e.ss}`] ??= []).push(e); (tgtG[`${e.target}|${e.ts}`] ??= []).push(e); });
+function allocatePorts(raw: RawEdge[], pos: Pos): { edgeSpecs: EdgeSpec[]; handlesByNode: Record<string, HandleSpec[]> } {
+  const specs: EdgeSpec[] = raw.map(e => {
+    const { ss, ts, back } = sideFor(pos[e.source], pos[e.target]);
+    return { ...e, ss, ts, back };
+  });
+  // one bucket per (node, side): both incoming and outgoing handles share the line → spread together.
+  type Need = { spec: EdgeSpec; role: 'source' | 'target'; other: string };
+  const buckets: Record<string, Need[]> = {};
+  specs.forEach(s => {
+    (buckets[`${s.source}|${s.ss}`] ??= []).push({ spec: s, role: 'source', other: s.target });
+    (buckets[`${s.target}|${s.ts}`] ??= []).push({ spec: s, role: 'target', other: s.source });
+  });
   const handlesByNode: Record<string, HandleSpec[]> = {};
-  const add = (node: string, id: string, kind: 'source' | 'target', side: string, pct: number) => { (handlesByNode[node] ??= []).push({ id, kind, side, pct }); };
-  const sortGroup = (list: EdgeSpec[], side: string, other: 'source' | 'target') => {
-    if (side === 'l' || side === 'r') list.sort((a, b) => (POS[a[other]]?.y ?? 0) - (POS[b[other]]?.y ?? 0));
-    else list.sort((a, b) => (POS[a[other]]?.x ?? 0) - (POS[b[other]]?.x ?? 0));
-  };
-  Object.entries(srcG).forEach(([key, list]) => {
-    const [node, side] = key.split('|'); sortGroup(list, side, 'target');
-    list.forEach((e, i) => { const pct = ((i + 1) / (list.length + 1)) * 100; e.sourceHandle = `s-${side}-${i}`; add(node, e.sourceHandle, 'source', side, pct); });
+  Object.entries(buckets).forEach(([key, list]) => {
+    const [node, side] = key.split('|');
+    const horiz = side === 'l' || side === 'r';
+    list.sort((a, b) => horiz
+      ? (pos[a.other]?.y ?? 0) - (pos[b.other]?.y ?? 0)
+      : (pos[a.other]?.x ?? 0) - (pos[b.other]?.x ?? 0));
+    list.forEach((need, i) => {
+      const pct = ((i + 1) / (list.length + 1)) * 100;
+      const hid = `${need.role[0]}-${side}-${i}-${need.spec.id}`;
+      if (need.role === 'source') need.spec.sourceHandle = hid; else need.spec.targetHandle = hid;
+      (handlesByNode[node] ??= []).push({ id: hid, kind: need.role, side, pct });
+    });
   });
-  Object.entries(tgtG).forEach(([key, list]) => {
-    const [node, side] = key.split('|'); sortGroup(list, side, 'source');
-    list.forEach((e, i) => { const pct = ((i + 1) / (list.length + 1)) * 100; e.targetHandle = `t-${side}-${i}`; add(node, e.targetHandle, 'target', side, pct); });
-  });
-  return { edgeSpecs: raw, handlesByNode };
+  return { edgeSpecs: specs, handlesByNode };
 }
 
 // ---- custom nodes ----
@@ -173,12 +231,26 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const [activeFlow, setActiveFlow] = useState<string | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [showStores, setShowStores] = useState(true);
+  const [pos, setPos] = useState<Pos | null>(null);
 
   const tasks = useMemo(() => toposService.getTasks(), []);
   const layers = useMemo(() => toposService.getLayers(), []);
   const examples = useMemo(() => toposService.getExamples(), []);
   const idSet = useMemo(() => new Set(tasks.map(t => t.id)), [tasks]);
-  const graph = useMemo(() => buildGraph(tasks, idSet), [tasks, idSet]);
+  const raw = useMemo(() => rawEdges(tasks, idSet), [tasks, idSet]);
+
+  // run the layout engine once — positions come from ELK, never from hand-tuned constants.
+  useEffect(() => {
+    let alive = true;
+    computeLayout(tasks, raw).then(p => {
+      if (!alive) return;
+      applyZoneGutter(p, tasks);
+      setPos(p);
+    }).catch(err => console.error('ELK layout failed', err));
+    return () => { alive = false; };
+  }, [tasks, raw]);
+
+  const graph = useMemo(() => pos ? allocatePorts(raw, pos) : { edgeSpecs: [], handlesByNode: {} }, [raw, pos]);
 
   const flowIds = useMemo(() => {
     if (!activeFlow) return null;
@@ -202,46 +274,47 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   }, []);
 
   const zoneNodes: Node[] = useMemo(() => {
-    const PAD = 48, TOP = 34;
+    if (!pos) return [];
+    const PAD = 46, TOP = 34;
     return layers.map((layer) => {
-      const pts = tasks.filter(t => t.layer_id === layer.id).map(t => POS[t.id]).filter(Boolean) as { x: number; y: number }[];
-      if (!pts.length) return null;
-      const minX = Math.min(...pts.map(p => p.x)) - PAD;
-      const minY = Math.min(...pts.map(p => p.y)) - PAD - TOP;
-      const maxX = Math.max(...pts.map(p => p.x)) + NODE_W + PAD;
-      const maxY = Math.max(...pts.map(p => p.y)) + NODE_H + PAD;
+      const members = tasks.filter(t => t.layer_id === layer.id && pos[t.id]);
+      if (!members.length) return null;
+      const minX = Math.min(...members.map(t => pos[t.id].x)) - PAD;
+      const minY = Math.min(...members.map(t => pos[t.id].y)) - PAD - TOP;
+      const maxX = Math.max(...members.map(t => pos[t.id].x + NODE_W)) + PAD;
+      const maxY = Math.max(...members.map(t => pos[t.id].y + nodeH(t))) + PAD;
       return {
         id: `zone_${layer.id}`, type: 'zone', position: { x: minX, y: minY },
         data: { label: layer.name, role: layer.role, color: layer.color },
         style: { width: maxX - minX, height: maxY - minY }, draggable: false, selectable: false, zIndex: -1,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [layers, tasks]);
+  }, [layers, tasks, pos]);
 
   const brickNodes: Node[] = useMemo(() => {
-    let autoRow = 0;
+    if (!pos) return [];
     return tasks.map((t) => {
-      const pos = POS[t.id] ?? { x: 2700, y: (autoRow++) * 90 };
       const families = t.id === 'det_detectors' ? (t.common_variants ?? []).filter(v => v.includes('×')) : [];
       let opacity = 1;
       if (flowIds && !flowIds.has(t.id)) opacity = 0.18;
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
-        id: t.id, type: 'brick', position: pos,
+        id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
         data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, handles: graph.handlesByNode[t.id] ?? [] },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, graph]);
+  }, [tasks, flowIds, connected, selected, graph, pos]);
 
   const nodes = useMemo(() => [...zoneNodes, ...brickNodes], [zoneNodes, brickNodes]);
 
   const edges: Edge[] = useMemo(() => {
     const focusId = selected?.id ?? null;
     return graph.edgeSpecs.map((e) => {
-      if (isStore(e.target) && !showStores) return null;
+      if (isStoreEdgeType(e.rel.type) && !showStores) return null;
       const color = EDGE_COLOR[e.rel.type] ?? '#8a8f98';
       const isLoop = e.source === 'eff_respond' && e.target === 'det_detectors';
+      const isRead = e.rel.type === 'reads_from';
       let dim = false, emph = true;
       if (flowIds) { emph = flowIds.has(e.source) && flowIds.has(e.target); dim = !emph; }
       else if (focusId) { emph = e.source === focusId || e.target === focusId; dim = !emph; }
@@ -255,7 +328,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         style: {
           stroke: isLoop ? '#e6a63c' : color,
           strokeWidth: (emph && (flowIds || focusId)) ? 2.4 : (isLoop ? 2.2 : (e.rel.strength === 'strong' ? 2 : 1.3)),
-          strokeDasharray: e.back ? '7 5' : undefined, opacity: dim ? 0.06 : 0.9,
+          strokeDasharray: e.back ? '7 5' : (isRead ? '1 6' : undefined), opacity: dim ? 0.06 : 0.9,
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: isLoop ? '#e6a63c' : color, width: 15, height: 15 },
         animated: isLoop || ((flowIds || focusId) ? (emph && wakesFlow) : false), zIndex: dim ? 0 : 1,
@@ -267,6 +340,14 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     if (node.type === 'zone') return;
     setSelected(toposService.getTaskById(node.id) ?? null);
   }, []);
+
+  if (!pos) {
+    return (
+      <div style={{ width: '100%', height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isDark ? '#0a1018' : '#f4f6f8', color: isDark ? '#9aa4b2' : '#5a6270', fontFamily: 'monospace', fontSize: 13 }}>
+        раскладка…
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'relative', width: '100%', height, background: isDark ? '#0a1018' : '#f4f6f8' }}>
@@ -285,7 +366,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
             <button onClick={() => setActiveFlow(null)} style={btn(activeFlow === null, isDark)}>весь граф</button>
             {examples.map((e) => (<button key={e.id} onClick={() => setActiveFlow(e.id)} style={btn(activeFlow === e.id, isDark)}>{e.title}</button>))}
             <span style={{ width: 1, height: 16, background: 'var(--border,#2a3646)', margin: '0 2px' }} />
-            <button onClick={() => setShowStores(s => !s)} style={btn(showStores, isDark)} title="Рёбра записи в vault-сторы">стор-записи</button>
+            <button onClick={() => setShowStores(s => !s)} style={btn(showStores, isDark)} title="Рёбра чтения/записи в vault-сторы">стор-рёбра</button>
             <button onClick={toggle} style={btn(false, isDark)} title="Тема" aria-label="Тема">{isDark ? <Sun size={13} /> : <Moon size={13} />}</button>
           </div>
         </Panel>

@@ -62,7 +62,6 @@ export const SYSTEM_TASKS: SystemTask[] = [
     },
     common_variants: ["drift ×16", "engagement ×10", "reflective ×8", "onboarding ×4", "care_safety ×2"],
     relations: [
-      { target_id: "store_focuses", type: "reduces", strength: "strong", reason: "Reducer над focuses/links — читает персистентный state, не рекомпутит." },
       { target_id: "gate_admission", type: "precedes", strength: "strong", reason: "T1 срабатывает всегда; дальше решает gate." }
     ]
   },
@@ -92,8 +91,7 @@ export const SYSTEM_TASKS: SystemTask[] = [
     },
     common_variants: ["reactive", "morning", "evening", "event", "signal", "deferred_reply"],
     relations: [
-      { target_id: "brain_core", type: "wakes", strength: "strong", reason: "Эфемерный system-turn: ум читает starter как стимул, не персистится." },
-      { target_id: "store_memories", type: "requires_input_from", strength: "medium", reason: "3-zone memory даёт датированные факты — датировать, а не выдумывать." }
+      { target_id: "brain_core", type: "wakes", strength: "strong", reason: "Эфемерный system-turn: ум читает starter как стимул, не персистится." }
     ]
   },
   {
@@ -106,9 +104,7 @@ export const SYSTEM_TASKS: SystemTask[] = [
       outputs: { primary: { id: "data_any", label: "Подтянутый контекст" }, metadata: [] }
     },
     common_variants: ["get_focus", "search_memory", "graph_neighbors", "read_agenda"],
-    relations: [
-      { target_id: "store_vault", type: "reduces", strength: "medium", reason: "Read-only проекции над vault; никогда не пишут в hot-path." }
-    ]
+    relations: []
   },
   {
     id: "eff_link_entities", layer_id: "layer_internal", task_type: "system",
@@ -147,7 +143,9 @@ export const SYSTEM_TASKS: SystemTask[] = [
     example_usage: "Персистятся только REPLY (subtype awareness:<trigger>), не system-turn.",
     io_spec: { inputs: { required: [{ id: "data_write", label: "write" }], optional: [] }, outputs: { primary: { id: "data_log", label: "conversation rows" }, metadata: [] } },
     common_variants: ["user_turn", "reply", "awareness"],
-    relations: []
+    relations: [
+      { target_id: "starter_recipe", type: "reads_from", strength: "strong", reason: "Лог — источник истины; стартер и всё внутри читают его." }
+    ]
   },
   {
     id: "store_focuses", layer_id: "layer_internal", task_type: "system",
@@ -156,7 +154,9 @@ export const SYSTEM_TASKS: SystemTask[] = [
     example_usage: "focus_fab4717b: SETKA (paused 2026-03-20, unfrozen 07-02).",
     io_spec: { inputs: { required: [{ id: "data_write", label: "write" }], optional: [] }, outputs: { primary: { id: "data_state", label: "focus rows" }, metadata: [] } },
     common_variants: ["active", "dormant", "paused"],
-    relations: []
+    relations: [
+      { target_id: "det_detectors", type: "reads_from", strength: "strong", reason: "Детекторы-reducer читают активные фокусы (drift/engagement)." }
+    ]
   },
   {
     id: "store_memories", layer_id: "layer_internal", task_type: "system",
@@ -165,7 +165,9 @@ export const SYSTEM_TASKS: SystemTask[] = [
     example_usage: "«SETKA paused 2026-03-20» — реальная дата вместо выдуманного «месяцы».",
     io_spec: { inputs: { required: [{ id: "data_write", label: "write" }], optional: [] }, outputs: { primary: { id: "data_state", label: "memory rows" }, metadata: [{ id: "data_text", label: "dates" }] } },
     common_variants: ["zone_a", "zone_b", "zone_c", "episodes"],
-    relations: []
+    relations: [
+      { target_id: "starter_recipe", type: "reads_from", strength: "medium", reason: "Датированные факты (3-zone) — стартер датирует, а не конфабулирует." }
+    ]
   },
   {
     id: "store_links", layer_id: "layer_internal", task_type: "system",
@@ -174,7 +176,9 @@ export const SYSTEM_TASKS: SystemTask[] = [
     example_usage: "code-grounded edge (capture) · model-inferred edge (Haiku/dream, unconfirmed) · confirmed edge.",
     io_spec: { inputs: { required: [{ id: "data_edge", label: "edge" }], optional: [] }, outputs: { primary: { id: "data_graph", label: "links rows" }, metadata: [{ id: "data_flag", label: "provenance/confirmed" }] } },
     common_variants: ["code_grounded", "model_inferred", "confirmed"],
-    relations: []
+    relations: [
+      { target_id: "det_detectors", type: "reads_from", strength: "medium", reason: "Reducer читает граф-рёбра наравне с фокусами." }
+    ]
   },
   {
     id: "store_vault", layer_id: "layer_internal", task_type: "system",
@@ -183,7 +187,10 @@ export const SYSTEM_TASKS: SystemTask[] = [
     example_usage: "items · focuses · memories · links · connector data — всё write'ится сюда.",
     io_spec: { inputs: { required: [{ id: "data_write", label: "write" }], optional: [] }, outputs: { primary: { id: "data_state", label: "vault state" }, metadata: [] } },
     common_variants: ["per_user_sqlcipher", "admin"],
-    relations: []
+    relations: [
+      { target_id: "tool_retrieve", type: "reads_from", strength: "strong", reason: "Read-only тулы проецируют vault по нужде ума." },
+      { target_id: "starter_recipe", type: "reads_from", strength: "medium", reason: "Vault-readers наполняют стартер standing-контекстом." }
+    ]
   },
 
   // ═══════════════ OUTBOUND ═══════════════
