@@ -374,6 +374,21 @@ function IOChip({ h }: { h: PortHandle }) {
     </span>
   );
 }
+// Default (id-less) source+target handles, invisible. React Flow will NOT mount an edge unless
+// both endpoints expose a resolvable handle; `contains`/`seq` edges carry no handle id, so the
+// class BrickNode and the taxo family/instance nodes each need a default handle for those edges
+// to render. The DRAWN geometry still comes entirely from ELK's `data.points` (ContainsEdgeComp
+// ignores handle position), so these are purely mount anchors, hidden and non-interactive. Flow
+// edges are unaffected: they reference specific port-handle ids, never the default.
+const HIDDEN_HANDLE: React.CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent', pointerEvents: 'none' };
+function MembershipHandles() {
+  return (
+    <>
+      <Handle type="target" position={Position.Left} isConnectable={false} style={HIDDEN_HANDLE} />
+      <Handle type="source" position={Position.Right} isConnectable={false} style={HIDDEN_HANDLE} />
+    </>
+  );
+}
 type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[]; minH: number; hasTaxonomy: boolean; taxoExpanded: boolean; onToggleTaxo: (id: string) => void };
 function BrickNode({ data }: NodeProps) {
   const { task, color, opacity, selected, badges, families, handles, minH, hasTaxonomy, taxoExpanded, onToggleTaxo } = data as unknown as BrickData;
@@ -393,6 +408,8 @@ function BrickNode({ data }: NodeProps) {
     }}>
       {/* port shapes on the border: ◇ output right, ▷ input left — aligned to the I/O rows below */}
       {handles.map((h) => (<PortShape key={h.id} h={h} />))}
+      {/* default anchors so class→family `contains` edges (no handle id) can mount */}
+      <MembershipHandles />
       {/* header — fixed height so ELK ports stay aligned with the rows */}
       <div style={{ height: headerH(task), overflow: 'hidden', padding: '6px 12px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
@@ -444,17 +461,19 @@ function BrickNode({ data }: NodeProps) {
   );
 }
 // ---- detail-hierarchy (drill-down) nodes: compact family/instance cards, attach via `contains` ----
-type FamilyNodeData = { name: string; childCount: number; nature: NodeNature; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean };
+type FamilyNodeData = { name: string; childCount: number; nature: NodeNature; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number };
 function FamilyNode({ id, data }: NodeProps) {
-  const { name, childCount, nature, expanded, hasChildren, onToggle, selected } = data as unknown as FamilyNodeData;
+  const { name, childCount, nature, expanded, hasChildren, onToggle, selected, opacity } = data as unknown as FamilyNodeData;
   const color = NATURES[nature].color;
   return (
     <div className="rf-brick" style={{
       width: TAXO_W, height: TAXO_H.family, boxSizing: 'border-box', borderRadius: 8, border: `1.3px solid ${color}`,
       background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', cursor: 'pointer',
+      opacity, transition: 'opacity .2s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
+      <MembershipHandles />
       {hasChildren ? (
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(id); }}
@@ -471,9 +490,9 @@ function FamilyNode({ id, data }: NodeProps) {
     </div>
   );
 }
-type InstanceNodeData = { name: string; nature: NodeNature; status: NodeStatus; selected: boolean };
+type InstanceNodeData = { name: string; nature: NodeNature; status: NodeStatus; selected: boolean; opacity: number };
 function InstanceNode({ data }: NodeProps) {
-  const { name, nature, status, selected } = data as unknown as InstanceNodeData;
+  const { name, nature, status, selected, opacity } = data as unknown as InstanceNodeData;
   const color = NATURES[nature].color;
   const dead = status === 'dead';
   return (
@@ -481,8 +500,10 @@ function InstanceNode({ data }: NodeProps) {
       width: TAXO_W, height: TAXO_H.instance, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
       background: `linear-gradient(180deg, ${color}18, ${color}09), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', cursor: 'pointer',
-      opacity: dead ? 0.5 : 1, boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
+      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .2s',   // dead-dim × focus-dim, stacked
+      boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
+      <MembershipHandles />
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
       <span style={{ flex: 1, minWidth: 0, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
       <StatusDot status={status} size={6} />
@@ -646,6 +667,18 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     }).filter(Boolean) as Node[];
   }, [layers, tasks, pos, heights]);
 
+  // Focus/spotlight dimming for a class id — the SAME thresholds brickNodes applies below
+  // (flowIds/selItem/connected, 0.18/0.2/0.25). A taxo child's dimming keys off its ROOT CLASS,
+  // so an expanded class's children + their contains/seq edges dim in lockstep with the class.
+  // Returns 1 (full brightness) when no focus mode is active.
+  const classOpacity = useCallback((classId: string): number => {
+    const spot = selItem ? new Set(selItem.related) : null;
+    if (flowIds && !flowIds.has(classId)) return 0.18;
+    if (spot && !spot.has(classId)) return 0.2;
+    if (connected && !connected.has(classId)) return 0.25;
+    return 1;
+  }, [flowIds, connected, selItem]);
+
   const brickNodes: Node[] = useMemo(() => {
     if (!pos) return [];
     const spot = selItem ? new Set(selItem.related) : null;
@@ -712,20 +745,28 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     if (!pos) return [];
     return taxoNodesVisible.filter(rt => pos[rt.id]).map(rt => {
       const isSel = selTaxo?.id === rt.id;
+      const opacity = classOpacity(rt.classId);   // dim with the root class in focus mode
       if (rt.kind === 'family') {
         return {
           id: rt.id, type: 'family', position: pos[rt.id],
-          data: { name: rt.name, childCount: rt.childCount, nature: rt.nature, expanded: expanded.has(rt.id), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel } as FamilyNodeData,
+          data: { name: rt.name, childCount: rt.childCount, nature: rt.nature, expanded: expanded.has(rt.id), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity } as FamilyNodeData,
           zIndex: isSel ? 3 : 2,
         } as Node;
       }
       return {
         id: rt.id, type: 'instance', position: pos[rt.id],
-        data: { name: rt.name, nature: rt.nature, status: rt.status, selected: isSel } as InstanceNodeData,
+        data: { name: rt.name, nature: rt.nature, status: rt.status, selected: isSel, opacity } as InstanceNodeData,
         zIndex: isSel ? 3 : 2,
       } as Node;
     });
-  }, [taxoNodesVisible, pos, expanded, toggleTaxo, selTaxo]);
+  }, [taxoNodesVisible, pos, expanded, toggleTaxo, selTaxo, classOpacity]);
+
+  // render id → root class id, so a contains/seq edge can inherit its class's dim factor.
+  const classOfRender = useMemo(() => {
+    const m: Record<string, string> = {};
+    taxoNodesVisible.forEach(n => { m[n.id] = n.classId; });
+    return m;
+  }, [taxoNodesVisible]);
 
   const nodes = useMemo(
     () => [...zoneNodes, ...bands.zones, ...brickNodes, ...itemNodes, ...taxoNodesRF],
@@ -764,15 +805,20 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
   // `contains` / `seq` membership edges — thin, grey, no ports/arrowhead/label, rendered BELOW
   // the flow edges (negative zIndex) so the flow stays visually dominant per the design doc.
+  // Focus-mode: base opacity (contains .5 / seq .7) is scaled by the edge's ROOT-CLASS dim factor
+  // (both endpoints share one class), so membership edges fade together with their class.
   const taxoEdgesRF: Edge[] = useMemo(() => {
     if (!pos) return [];
     const mk = (e: ContainsEdge, isSeq: boolean): Edge | null => {
       const points = pts[e.id];
       if (!points || points.length < 2) return null;
+      const cid = classOfRender[e.target];               // target is always a taxo node
+      const dimFactor = cid ? classOpacity(cid) : 1;
+      const base = isSeq ? 0.7 : 0.5;
       return {
         id: e.id, source: e.source, target: e.target, type: 'contains',
         data: { points } as ElkEdgeData,
-        style: { stroke: '#5a6675', strokeWidth: isSeq ? 1.4 : 1.2, opacity: isSeq ? 0.7 : 0.5 },
+        style: { stroke: '#5a6675', strokeWidth: isSeq ? 1.4 : 1.2, opacity: base * dimFactor },
         zIndex: -1,
       } as Edge;
     };
@@ -780,7 +826,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       ...taxoContainsEdges.map(e => mk(e, false)),
       ...taxoSeqEdges.map(e => mk(e, true)),
     ].filter(Boolean) as Edge[];
-  }, [taxoContainsEdges, taxoSeqEdges, pts, pos]);
+  }, [taxoContainsEdges, taxoSeqEdges, pts, pos, classOfRender, classOpacity]);
 
   const allEdges = useMemo(() => [...edges, ...taxoEdgesRF], [edges, taxoEdgesRF]);
 
