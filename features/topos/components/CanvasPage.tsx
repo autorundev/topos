@@ -19,6 +19,10 @@ const NODE_W = 210;
 type XY = { x: number; y: number };
 type Pos = Record<string, XY>;
 type EdgePts = Record<string, XY[]>;
+type Side = 'EAST' | 'WEST' | 'NORTH' | 'SOUTH';
+type HandleSpec = { id: string; kind: 'source' | 'target'; side: Side; x: number; y: number };
+type Handles = Record<string, HandleSpec[]>;
+const SIDE_POS: Record<Side, Position> = { EAST: Position.Right, WEST: Position.Left, NORTH: Position.Top, SOUTH: Position.Bottom };
 
 // left→right pipeline: inbound → internal → outbound. ELK partitions keep zones apart.
 const LAYER_ORDER: Record<string, number> = { layer_inbound: 0, layer_internal: 1, layer_outbound: 2 };
@@ -83,8 +87,16 @@ function rawEdges(tasks: Task[], idSet: Set<string>): RawEdge[] {
 }
 
 const elk = new ELK();
+const portS = (id: string) => `${id}__s`;   // source port (output) → EAST
+const portT = (id: string) => `${id}__t`;   // target port (input)  → WEST
 
-async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Pos; pts: EdgePts }> {
+async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Pos; pts: EdgePts; handles: Handles }> {
+  // one explicit port per edge-endpoint, side fixed: outputs EAST, inputs WEST.
+  const outPorts: Record<string, any[]> = {}, inPorts: Record<string, any[]> = {};
+  edges.forEach(e => {
+    (outPorts[e.source] ??= []).push({ id: portS(e.id), layoutOptions: { 'elk.port.side': 'EAST' } });
+    (inPorts[e.target] ??= []).push({ id: portT(e.id), layoutOptions: { 'elk.port.side': 'WEST' } });
+  });
   const graph = {
     id: 'root',
     layoutOptions: {
@@ -101,24 +113,32 @@ async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Po
       'elk.layered.spacing.edgeNodeBetweenLayers': String(SAFE_ZONE),
       'elk.spacing.edgeEdge': '16',
       'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
-      'elk.spacing.portPort': '14',
+      'elk.spacing.portPort': '13',
     },
     children: tasks.map(t => ({
       id: t.id, width: NODE_W, height: nodeH(t),
-      layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1) },
+      layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_SIDE' },
+      ports: [...(outPorts[t.id] ?? []), ...(inPorts[t.id] ?? [])],
     })),
-    edges: edges.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] })),
+    edges: edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
   };
   const res: any = await elk.layout(graph as any);
   const pos: Pos = {};
-  (res.children ?? []).forEach((c: any) => { pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 }; });
+  const handles: Handles = {};
+  (res.children ?? []).forEach((c: any) => {
+    pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
+    (c.ports ?? []).forEach((p: any) => {
+      const side = (p.layoutOptions?.['elk.port.side'] ?? 'EAST') as Side;
+      (handles[c.id] ??= []).push({ id: p.id, kind: p.id.endsWith('__s') ? 'source' : 'target', side, x: p.x ?? 0, y: p.y ?? 0 });
+    });
+  });
   const pts: EdgePts = {};
   (res.edges ?? []).forEach((e: any) => {
     const sec = e.sections?.[0];
     if (!sec) return;
     pts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
   });
-  return { pos, pts };
+  return { pos, pts, handles };
 }
 
 // rounded orthogonal SVG path through ELK bend points.
@@ -175,10 +195,10 @@ function ElkEdge({ id, data, markerEnd, style }: EdgeProps) {
 }
 
 // ---- custom nodes ----
-const HIDDEN_HANDLE: React.CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 1, minHeight: 1, border: 'none', background: 'transparent', pointerEvents: 'none' };
-type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[] };
+const dotStyle = (c: string): React.CSSProperties => ({ background: c, border: '1.5px solid var(--surface, #101826)', width: 8, height: 8, borderRadius: '50%', opacity: 0.95 });
+type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: HandleSpec[] };
 function BrickNode({ data }: NodeProps) {
-  const { task, color, opacity, selected, badges, families } = data as unknown as BrickData;
+  const { task, color, opacity, selected, badges, families, handles } = data as unknown as BrickData;
   const { icon: Icon, kind } = kindOf(task);
   return (
     <div className="rf-brick" title={task.elevator_pitch} style={{
@@ -187,9 +207,11 @@ function BrickNode({ data }: NodeProps) {
       color: 'var(--text-main, #e6e9ee)', padding: '8px 11px 9px', opacity, transition: 'opacity .2s, box-shadow .12s, transform .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
-      {/* hidden handles: satisfy React Flow edge attachment; the drawn path comes from ELK, not from these. */}
-      <Handle id="src" type="source" position={Position.Right} style={HIDDEN_HANDLE} isConnectable={false} />
-      <Handle id="tgt" type="target" position={Position.Left} style={HIDDEN_HANDLE} isConnectable={false} />
+      {/* visible port dots at ELK-computed positions: outputs on the right, inputs on the left. */}
+      {handles.map((h) => (
+        <Handle key={h.id} id={h.id} type={h.kind} position={SIDE_POS[h.side]} isConnectable={false}
+          style={{ ...dotStyle(color), ...((h.side === 'EAST' || h.side === 'WEST') ? { top: h.y } : { left: h.x }) }} />
+      ))}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
         <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
         <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.9 }}>{kind}</span>
@@ -235,7 +257,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const [activeFlow, setActiveFlow] = useState<string | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [showStores, setShowStores] = useState(true);
-  const [layout, setLayout] = useState<{ pos: Pos; pts: EdgePts } | null>(null);
+  const [layout, setLayout] = useState<{ pos: Pos; pts: EdgePts; handles: Handles } | null>(null);
 
   const tasks = useMemo(() => toposService.getTasks(), []);
   const layers = useMemo(() => toposService.getLayers(), []);
@@ -252,6 +274,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
   const pos = layout?.pos ?? null;
   const pts = layout?.pts ?? {};
+  const handles = layout?.handles ?? {};
 
   const flowIds = useMemo(() => {
     if (!activeFlow) return null;
@@ -301,11 +324,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
-        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families },
+        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, handles: handles[t.id] ?? [] },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, pos]);
+  }, [tasks, flowIds, connected, selected, pos, handles]);
 
   const nodes = useMemo(() => [...zoneNodes, ...brickNodes], [zoneNodes, brickNodes]);
 
@@ -325,7 +348,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const stroke = isLoop ? '#e6a63c' : color;
       const points = pts[e.id] ?? [centre(e.source), centre(e.target)];
       return {
-        id: e.id, source: e.source, target: e.target, sourceHandle: 'src', targetHandle: 'tgt', type: 'elk',
+        id: e.id, source: e.source, target: e.target, sourceHandle: portS(e.id), targetHandle: portT(e.id), type: 'elk',
         data: {
           points, label: isLoop ? '↺ эффект = write' : e.rel.type, showLabel: !dim,
           labelColor: isLoop ? '#e6a63c' : color, labelBg: isDark ? 'rgba(11,20,32,.82)' : 'rgba(244,246,248,.85)',
