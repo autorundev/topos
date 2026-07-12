@@ -15,11 +15,12 @@ import {
 import { toposService } from '../../../services/toposService';
 import { TOPOS_DATA } from '../../../data';
 import { useDarkMode } from '../../../hooks/useDarkMode';
-import type { Task, IOItem, NodeCategory, NodeNature, NodeStatus } from '../../../types';
+import type { Task, IOItem, NodeCategory, NodeNature, NodeStatus, TaxoIO } from '../../../types';
 import { visibleTaxo, type TaxoRender } from '../lib/visibleTaxo';
 import {
   containerLayout, flattenContainerLayout,
   TAXO_W, TAXO_H, CONTAINER_HEADER_H,
+  IO_ROW_H, ioRowCount, ioRowsExtraHeight,
   type ContainerLayoutResult, type FlatContainerCell,
 } from '../lib/containerLayout';
 
@@ -373,6 +374,20 @@ function IOChip({ h }: { h: PortHandle }) {
     </span>
   );
 }
+// Per-child I/O chip (Step 2b) — a compact pill for the taxo instance leaf card (narrower than
+// BrickNode's IOChip, which is sized for the NODE_W=232 card). `required` bolds the label instead
+// of adding a second visual layer (dot/border) — cheapest legible distinction at this size; owner
+// polishes later. `title` carries the untruncated label since long tool outputs get ellipsized.
+function TaxoIOChip({ label, required, color }: { label: string; required?: boolean; color: string }) {
+  return (
+    <span title={label} style={{
+      display: 'inline-block', maxWidth: 62, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      border: `1px solid ${color}`, background: `${color}1f`, color,
+      borderRadius: 4, padding: '0 4px', fontFamily: 'monospace', fontSize: 7.5, lineHeight: `${IO_ROW_H - 2}px`,
+      fontWeight: required ? 700 : 400,
+    }}>{label}</span>
+  );
+}
 // Default (id-less) source+target handles, invisible. React Flow will NOT mount an edge unless
 // both endpoints expose a resolvable handle; `contains`/`seq` edges carry no handle id, so the
 // class BrickNode and the taxo family/instance nodes each need a default handle for those edges
@@ -523,32 +538,52 @@ function FamilyNode({ id, data }: NodeProps) {
     </div>
   );
 }
-type InstanceNodeData = { name: string; nature: NodeNature; status: NodeStatus; selected: boolean; opacity: number; seq?: number };
+type InstanceNodeData = { name: string; nature: NodeNature; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO };
 function InstanceNode({ data }: NodeProps) {
-  const { name, nature, status, selected, opacity, seq } = data as unknown as InstanceNodeData;
+  const { name, nature, status, selected, opacity, seq, io } = data as unknown as InstanceNodeData;
   const color = NATURES[nature].color;
   const dead = status === 'dead';
+  // Step 2b: a leaf with TAXO_IO (tools + detectors) shows its OWN ports as chip rows below the
+  // name — input left / output right, one row per max(inputs, outputs) — replacing reliance on
+  // the container's aggregate gutters for that child. Height MUST match containerLayout's
+  // instanceCellHeight (same ioRowCount/ioRowsExtraHeight fns) or the grid misaligns.
+  const rows = ioRowCount(io);
+  const height = TAXO_H.instance + ioRowsExtraHeight(rows);
+  const ins = io?.inputs ?? [];
+  const outs = io?.outputs ?? [];
   return (
     <div className="rf-brick" style={{
-      width: TAXO_W, height: TAXO_H.instance, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
+      width: TAXO_W, height, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
       background: `linear-gradient(180deg, ${color}18, ${color}09), var(--surface, #101826)`,
-      color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', cursor: 'pointer',
+      color: 'var(--text-main, #e6e9ee)', display: 'flex', flexDirection: 'column', cursor: 'pointer',
       opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .2s',   // dead-dim × focus-dim, stacked
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <MembershipHandles />
-      {/* dream (and any future ordered family) cells: a small numbered badge instead of the plain
-          dot, so the pipeline order (1..11) reads directly off the grid regardless of wrap. */}
-      {typeof seq === 'number' ? (
-        <span style={{
-          width: 14, height: 14, borderRadius: '50%', background: `${color}2a`, border: `1px solid ${color}88`,
-          color, fontSize: 8, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto',
-        }}>{seq + 1}</span>
-      ) : (
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
+      <div style={{ height: TAXO_H.instance, flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px' }}>
+        {/* dream (and any future ordered family) cells: a small numbered badge instead of the plain
+            dot, so the pipeline order (1..11) reads directly off the grid regardless of wrap. */}
+        {typeof seq === 'number' ? (
+          <span style={{
+            width: 14, height: 14, borderRadius: '50%', background: `${color}2a`, border: `1px solid ${color}88`,
+            color, fontSize: 8, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto',
+          }}>{seq + 1}</span>
+        ) : (
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
+        )}
+        <span style={{ flex: 1, minWidth: 0, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
+        <StatusDot status={status} size={6} />
+      </div>
+      {rows > 0 && (
+        <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px' }}>
+          {Array.from({ length: rows }).map((_, r) => (
+            <div key={r} style={{ height: IO_ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+              <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} required={ins[r].required} color={color} />}</span>
+              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} color={color} />}</span>
+            </div>
+          ))}
+        </div>
       )}
-      <span style={{ flex: 1, minWidth: 0, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
-      <StatusDot status={status} size={6} />
     </div>
   );
 }
@@ -881,7 +916,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       }
       return {
         id: f.renderId, type: 'instance', position: { x: f.x, y: f.y },
-        data: { name: rt.name, nature: rt.nature, status: rt.status, selected: isSel, opacity, seq: f.seq } as InstanceNodeData,
+        data: { name: rt.name, nature: rt.nature, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId) } as InstanceNodeData,
         zIndex: 2,
       } as Node;
     }).filter(Boolean) as Node[];

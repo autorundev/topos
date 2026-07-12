@@ -18,7 +18,7 @@
  * step for any given `expanded` set — verified together in CanvasPage (containerLayout drives
  * position, visibleTaxo drives display metadata by the same render id).
  */
-import type { Task, TaxoNode, TaxoKind } from '../../../types';
+import type { Task, TaxoNode, TaxoKind, TaxoIO } from '../../../types';
 import { toposService } from '../../../services/toposService';
 import { taxoRenderId } from './visibleTaxo';
 
@@ -30,6 +30,29 @@ export const CONTAINER_GUTTER_W = 124;   // class-root only: port shape + IOChip
 export const CONTAINER_BODY_PAD = 14;    // header/gutter → first grid cell, and body → far edges
 export const CELL_GAP = 10;              // gap between grid cells, both axes
 const MAX_GRID_COLS = 4;
+
+// ── Step 2b: per-child I/O chip rows on an instance leaf card ──────────────────────────────
+// A leaf whose TaxoNode.id has a TAXO_IO entry (tool_* / det_* — see data/taxonomy_io.ts) grows
+// TALLER than the base TAXO_H.instance to fit one row per max(inputs, outputs): input chip on the
+// left edge, output chip on the right edge (mirrors the container's own L=in/R=out gutter
+// convention, one level down). Exported so CanvasPage's InstanceNode component can render EXACTLY
+// the row count/height this module reserves in the grid — the two MUST agree, or leaf cards will
+// visually overlap their neighbours' grid slot.
+export const IO_ROW_H = 15;
+export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row
+
+export function ioRowCount(io?: TaxoIO): number {
+  if (!io) return 0;
+  return Math.max(io.inputs?.length ?? 0, io.outputs?.length ?? 0);
+}
+export function ioRowsExtraHeight(rows: number): number {
+  return rows > 0 ? IO_ROW_PAD + rows * IO_ROW_H : 0;
+}
+/** Full instance-cell height including any I/O rows. `taxoId` is the RAW TaxoNode id (TAXO_IO's
+ * key), not the classId-namespaced render id. */
+export function instanceCellHeight(taxoId: string): number {
+  return TAXO_H.instance + ioRowsExtraHeight(ioRowCount(toposService.getTaxoIO(taxoId)));
+}
 
 export interface ContainerCell {
   renderId: string;
@@ -107,7 +130,8 @@ export function containerLayout(rootId: string, expanded: Set<string>, _tasks: T
       const nested = containerLayout(renderId, expanded, _tasks);
       return { renderId, kind: 'container' as const, x: 0, y: 0, w: nested.size.w, h: nested.size.h, layout: nested, seq: child.seq };
     }
-    return { renderId, kind: child.kind, x: 0, y: 0, w: TAXO_W, h: TAXO_H[child.kind], seq: child.seq };
+    const h = child.kind === 'instance' ? instanceCellHeight(child.id) : TAXO_H[child.kind];
+    return { renderId, kind: child.kind, x: 0, y: 0, w: TAXO_W, h, seq: child.seq };
   });
 
   const cols = gridCols(cells.length);

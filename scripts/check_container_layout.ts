@@ -6,7 +6,7 @@
  */
 import { loadToposData } from '../lib/dataLoader';
 import { toposService } from '../services/toposService';
-import { containerLayout, flattenContainerLayout, TAXO_W, TAXO_H, CONTAINER_GUTTER_W } from '../features/topos/lib/containerLayout';
+import { containerLayout, flattenContainerLayout, TAXO_W, TAXO_H, CONTAINER_GUTTER_W, instanceCellHeight } from '../features/topos/lib/containerLayout';
 import { taxoRenderId } from '../features/topos/lib/visibleTaxo';
 import type { Task } from '../types';
 
@@ -144,6 +144,30 @@ async function main() {
     assert(allInsideDrift, 'every drift instance sits inside fam_drift\'s absolute box');
     const distinctIds = new Set(flat.map(f => f.renderId));
     assert(distinctIds.size === flat.length, 'no duplicate render ids in the flattened list');
+  }
+
+  // ── 6. Step 2b: instance cells carrying TAXO_IO grow taller than the base TAXO_H.instance,
+  // and the growth exactly matches `instanceCellHeight` (the single source of truth CanvasPage's
+  // InstanceNode component also uses for its own CSS height) — cells WITHOUT io stay at the base.
+  console.log('\n[6] Step 2b: per-child I/O rows inflate instance cell height');
+  {
+    const famDriftRid = taxoRenderId('det_detectors', 'fam_drift');
+    const expanded = new Set(['det_detectors', famDriftRid]);
+    const layout = containerLayout('det_detectors', expanded, tasks);
+    const driftNested = layout.cells.find(c => c.renderId === famDriftRid)!.layout!;
+    const sustainedDriftRid = taxoRenderId('det_detectors', 'det_sustained_drift');
+    const withIoCell = driftNested.cells.find(c => c.renderId === sustainedDriftRid);
+    assert(!!withIoCell, 'det_sustained_drift (has TAXO_IO: clock-tick -> drift) cell found');
+    assert(withIoCell!.h === instanceCellHeight('det_sustained_drift'), `cell height (${withIoCell!.h}) matches instanceCellHeight('det_sustained_drift') (${instanceCellHeight('det_sustained_drift')})`);
+    assert(withIoCell!.h > TAXO_H.instance, `IO-bearing cell (${withIoCell!.h}) taller than base TAXO_H.instance (${TAXO_H.instance})`);
+
+    // proc_nightly's dream stages carry no TAXO_IO (not a tool/detector) — height unaffected.
+    const famDreamRid = taxoRenderId('proc_nightly', 'fam_dream');
+    const dreamLayout = containerLayout('proc_nightly', new Set(['proc_nightly', famDreamRid]), tasks);
+    const dreamNested = dreamLayout.cells.find(c => c.renderId === famDreamRid)!.layout!;
+    assert(dreamNested.cells.every(c => c.h === TAXO_H.instance), `every no-IO dream cell stays at base TAXO_H.instance (${TAXO_H.instance})`);
+
+    assertCellsInBounds('fam_drift (nested, IO-inflated)', driftNested, false);
   }
 
   console.log('\n' + (failed ? 'containerLayout check FAILED.' : 'containerLayout check PASSED.'));
