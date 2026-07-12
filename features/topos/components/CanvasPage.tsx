@@ -69,14 +69,16 @@ const ioOut = (t?: Task | null) => (t?.io_spec?.outputs?.primary ? ioLabel(t.io_
 
 // ═══════ functional category — the finer axis that drives node colour/icon.
 // inbound/internal/outbound stays only as the faint meta-cluster (zone box).
-type CatKey = 'user' | 'ingest' | 'detect' | 'route' | 'ai' | 'process' | 'data' | 'effect';
+type CatKey = 'user' | 'ingest' | 'detect' | 'gate' | 'starter' | 'ai' | 'graph' | 'nightly' | 'data' | 'effect';
 const CATEGORIES: Record<CatKey, { label: string; color: string; icon: React.ComponentType<{ size?: number }> }> = {
   user:    { label: 'Действия юзера', color: '#e0894a', icon: User },
-  ingest:  { label: 'Внешний вход',   color: '#d3b24a', icon: Rss },
+  ingest:  { label: 'Внешний вход',   color: '#cdae3f', icon: Rss },
   detect:  { label: 'Детекторы',      color: '#9a6cd8', icon: Radar },
-  route:   { label: 'Маршрутизация',  color: '#4f8fd6', icon: Filter },
+  gate:    { label: 'Маршрутизация',  color: '#4f8fd6', icon: Filter },
+  starter: { label: 'Сборка / старт', color: '#3fb0a0', icon: Layers },
   ai:      { label: 'Работа ИИ',      color: '#e0699f', icon: BrainCircuit },
-  process: { label: 'Граф / ночной',  color: '#6f76d6', icon: Share2 },
+  graph:   { label: 'Граф',           color: '#6f8de0', icon: Share2 },
+  nightly: { label: 'Ночной цикл',    color: '#7a63c0', icon: Moon },
   data:    { label: 'Данные',         color: '#6c8a9e', icon: Database },
   effect:  { label: 'Эффект наружу',  color: '#46c48a', icon: Send },
 };
@@ -84,9 +86,9 @@ const CATEGORY_OF: Record<string, CatKey> = {
   trig_user_message: 'user', human_confirm: 'user',
   trig_connector_sync: 'ingest', trig_cron: 'ingest',
   det_detectors: 'detect',
-  gate_admission: 'route', starter_recipe: 'route',
+  gate_admission: 'gate', starter_recipe: 'starter',
   brain_core: 'ai', tool_retrieve: 'ai',
-  eff_link_entities: 'process', proc_nightly: 'process',
+  eff_link_entities: 'graph', proc_nightly: 'nightly',
   store_conversation: 'data', store_focuses: 'data', store_memories: 'data', store_links: 'data', store_vault: 'data',
   eff_respond: 'effect',
 };
