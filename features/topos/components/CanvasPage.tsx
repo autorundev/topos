@@ -93,8 +93,24 @@ const CATEGORY_OF: Record<string, CatKey> = {
   eff_respond: 'effect',
 };
 const catOf = (id: string): CatKey => CATEGORY_OF[id] ?? 'data';
-const catColor = (id: string) => CATEGORIES[catOf(id)].color;
 const catLabel = (id: string) => CATEGORIES[catOf(id)].label;
+
+// ═══════ PRIMARY axis — nature of the operation (Atlas: probabilistic / deterministic / human).
+// This is the VectorOS doctrine made visible: the model runs in a few places, everything else is code.
+// Per-node (not derived) because nature can differ — a detector may be code OR a model call; ours are code.
+type Nature = 'model' | 'code' | 'human';
+const NATURES: Record<Nature, { label: string; short: string; color: string }> = {
+  model: { label: 'Вероятностное · модель',  short: 'модель',  color: '#b45fd6' },
+  code:  { label: 'Детерминированное · код', short: 'код',     color: '#4a90c2' },
+  human: { label: 'Человек',                 short: 'человек', color: '#e0894a' },
+};
+const NATURE_OF: Record<string, Nature> = {
+  trig_user_message: 'human', human_confirm: 'human',
+  brain_core: 'model', proc_nightly: 'model', eff_link_entities: 'model',   // model inference lives here
+  // everything else defaults to 'code' (detectors, gate, starter, tools, cron, connector, stores, effect)
+};
+const natureOf = (id: string): Nature => NATURE_OF[id] ?? 'code';
+const natureColor = (id: string) => NATURES[natureOf(id)].color;
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
 const ROW_H = 34;   // one input/output row — tall enough for a 2-line chip
@@ -306,7 +322,8 @@ function BrickNode({ data }: NodeProps) {
       <div style={{ height: headerH(task), overflow: 'hidden', padding: '6px 12px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
           <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
-          <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.9 }}>{catLabel(task.id)}</span>
+          <span style={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 9, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catLabel(task.id)}</span>
+          <span style={{ flex: '0 0 auto', fontFamily: 'monospace', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES[natureOf(task.id)].short}</span>
         </div>
         <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15 }}>{task.name}</div>
         {families.length > 0 && (
@@ -445,7 +462,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
-        data: { task: t, color: catColor(t.id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, minH: heights[t.id] ?? headerH(t) + ROW_H, handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? catColor(t.id), label: portLabel[h.id] ?? '' })) },
+        data: { task: t, color: natureColor(t.id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, minH: heights[t.id] ?? headerH(t) + ROW_H, handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? natureColor(t.id), label: portLabel[h.id] ?? '' })) },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
@@ -516,12 +533,19 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
         {!selected && (
           <Panel position="top-right">
-            <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'monospace', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)' }}>
-              <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>КАТЕГОРИИ</div>
-              {(Object.keys(CATEGORIES) as CatKey[]).map(k => {
-                const cat = CATEGORIES[k]; const CatIcon = cat.icon;
-                return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-flex', color: cat.color }}><CatIcon size={11} /></span><span style={{ width: 9, height: 9, borderRadius: 2, background: cat.color, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{cat.label}</span></div>);
+            <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'monospace', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)', maxHeight: 'calc(100vh - 90px)', overflowY: 'auto' }}>
+              <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>ПРИРОДА · цвет</div>
+              {(Object.keys(NATURES) as Nature[]).map(k => {
+                const n = NATURES[k];
+                return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: n.color, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{n.label}</span></div>);
               })}
+              <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>ФУНКЦИЯ · иконка</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px' }}>
+                {(Object.keys(CATEGORIES) as CatKey[]).map(k => {
+                  const cat = CATEGORIES[k]; const CatIcon = cat.icon;
+                  return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}><span style={{ display: 'inline-flex', opacity: 0.6 }}><CatIcon size={10} /></span><span style={{ opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat.label}</span></div>);
+                })}
+              </div>
               <div style={{ opacity: 0.4, marginTop: 4 }}>зоны inbound·internal·outbound — мета-кластер</div>
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СВЯЗИ</div>
               {EDGE_LEGEND.map(([type, ru]) => {
@@ -549,8 +573,9 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
 function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; onClose: () => void }) {
   const { icon: Icon } = kindOf(task);
-  const color = catColor(task.id);
+  const color = natureColor(task.id);
   const cat = CATEGORIES[catOf(task.id)];
+  const nat = NATURES[natureOf(task.id)];
   const layer = toposService.getLayerById(task.layer_id);
   const io = task.io_spec;
   return (
@@ -564,7 +589,8 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
       </div>
       <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{task.name}</h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, color }}>{cat.label}</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{nat.label}</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#c2c9d4)' }}>{cat.label}</span>
         <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>зона: {layer?.name}</span>
       </div>
       <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted,#c2c9d4)', marginBottom: 12 }}>{task.elevator_pitch}</p>
