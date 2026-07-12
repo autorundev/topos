@@ -68,7 +68,7 @@ const ioLabel = (i: IOItem) => (typeof i === 'string' ? i : i.label);
 const ioOut = (t?: Task | null) => (t?.io_spec?.outputs?.primary ? ioLabel(t.io_spec.outputs.primary) : '');
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
-const ROW_H = 26;   // one input/output row
+const ROW_H = 34;   // one input/output row — tall enough for a 2-line chip
 const famCountOf = (t: Task) => t.id === 'det_detectors' ? (t.common_variants ?? []).filter(v => v.includes('×')).length : 0;
 // fixed header-block height (kind + title + families + badges) sitting above the I/O rows.
 function headerH(t: Task): number {
@@ -194,16 +194,15 @@ function PortShape({ h }: { h: PortHandle }) {
     </Handle>
   );
 }
-// I/O chip: a pill outlined in the edge colour, with the port shape as an inline icon.
+// I/O chip: a pill outlined in the edge colour; label in the same tone, wraps up to 2 lines.
 function IOChip({ h }: { h: PortHandle }) {
   return (
     <span title={h.label} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 98, minWidth: 0,
-      border: `1px solid ${h.color}`, background: `${h.color}22`, color: 'var(--text-main, #e6e9ee)',
-      borderRadius: 6, padding: '1px 6px', fontFamily: 'monospace', fontSize: 8.5, lineHeight: 1.5,
+      display: 'inline-flex', maxWidth: 98, minWidth: 0,
+      border: `1px solid ${h.color}`, background: `${h.color}1f`, color: h.color,
+      borderRadius: 6, padding: '2px 6px', fontFamily: 'monospace', fontSize: 8.5, lineHeight: 1.3,
     }}>
-      <svg width="8" height="8" viewBox="0 0 14 14" style={{ flex: '0 0 auto', overflow: 'visible' }}><path d={h.kind === 'source' ? DIAMOND : TRIANGLE} fill={h.color} /></svg>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.label}</span>
+      <span style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', overflowWrap: 'anywhere' }}>{h.label}</span>
     </span>
   );
 }
