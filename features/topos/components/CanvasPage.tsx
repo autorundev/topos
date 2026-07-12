@@ -15,7 +15,7 @@ import {
 import { toposService } from '../../../services/toposService';
 import { TOPOS_DATA } from '../../../data';
 import { useDarkMode } from '../../../hooks/useDarkMode';
-import type { Task, IOItem } from '../../../types';
+import type { Task, IOItem, NodeCategory, NodeNature } from '../../../types';
 
 const NODE_W = 232;   // I/O chips stack as rows inside the card (grows height, not width)
 type XY = { x: number; y: number };
@@ -69,9 +69,9 @@ const ioLabel = (i: IOItem) => (typeof i === 'string' ? i : i.label);
 // data on an edge = the primary output of its source; both ports (out + in) carry it.
 const ioOut = (t?: Task | null) => (t?.io_spec?.outputs?.primary ? ioLabel(t.io_spec.outputs.primary) : '');
 
-// ═══════ functional category — the finer axis that drives node colour/icon.
-// inbound/internal/outbound stays only as the faint meta-cluster (zone box).
-type CatKey = 'user' | 'ingest' | 'detect' | 'gate' | 'starter' | 'ai' | 'graph' | 'nightly' | 'data' | 'effect';
+// Presentation registries for the two model-level axes (per-node assignment now lives in data/*.ts).
+// SECONDARY axis — functional category (drives icon + label).
+type CatKey = NodeCategory;
 const CATEGORIES: Record<CatKey, { label: string; color: string; icon: React.ComponentType<{ size?: number }> }> = {
   user:    { label: 'Действия юзера', color: '#e0894a', icon: User },
   ingest:  { label: 'Внешний вход',   color: '#cdae3f', icon: Rss },
@@ -84,34 +84,18 @@ const CATEGORIES: Record<CatKey, { label: string; color: string; icon: React.Com
   data:    { label: 'Данные',         color: '#6c8a9e', icon: Database },
   effect:  { label: 'Эффект наружу',  color: '#46c48a', icon: Send },
 };
-const CATEGORY_OF: Record<string, CatKey> = {
-  trig_user_message: 'user', human_confirm: 'user',
-  trig_connector_sync: 'ingest', trig_cron: 'ingest',
-  det_detectors: 'detect',
-  gate_admission: 'gate', starter_recipe: 'starter',
-  brain_core: 'ai', tool_retrieve: 'ai',
-  eff_link_entities: 'graph', proc_nightly: 'nightly',
-  store_conversation: 'data', store_focuses: 'data', store_memories: 'data', store_links: 'data', store_vault: 'data',
-  eff_respond: 'effect',
-};
-const catOf = (id: string): CatKey => CATEGORY_OF[id] ?? 'data';
+const catOf = (id: string): CatKey => (toposService.getTaskById(id)?.category ?? 'data') as CatKey;
 const catLabel = (id: string) => CATEGORIES[catOf(id)].label;
 
-// ═══════ PRIMARY axis — nature of the operation (Atlas: probabilistic / deterministic / human).
-// This is the VectorOS doctrine made visible: the model runs in a few places, everything else is code.
-// Per-node (not derived) because nature can differ — a detector may be code OR a model call; ours are code.
-type Nature = 'model' | 'code' | 'human';
+// PRIMARY axis — nature of the operation (Atlas: probabilistic / deterministic / human).
+// The model runs in a few places, everything else is code — VectorOS doctrine made visible.
+type Nature = NodeNature;
 const NATURES: Record<Nature, { label: string; short: string; color: string }> = {
   model: { label: 'Вероятностное · модель',  short: 'модель',  color: '#b45fd6' },
   code:  { label: 'Детерминированное · код', short: 'код',     color: '#4a90c2' },
   human: { label: 'Человек',                 short: 'человек', color: '#e0894a' },
 };
-const NATURE_OF: Record<string, Nature> = {
-  trig_user_message: 'human', human_confirm: 'human',
-  brain_core: 'model', proc_nightly: 'model', eff_link_entities: 'model',   // model inference lives here
-  // everything else defaults to 'code' (detectors, gate, starter, tools, cron, connector, stores, effect)
-};
-const natureOf = (id: string): Nature => NATURE_OF[id] ?? 'code';
+const natureOf = (id: string): Nature => (toposService.getTaskById(id)?.nature ?? 'code') as Nature;
 const natureColor = (id: string) => NATURES[natureOf(id)].color;
 
 // ═══════ cross-cutting bands (Atlas): Constraints (invariants) + Touchpoints (surfaces).

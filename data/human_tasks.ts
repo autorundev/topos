@@ -3,7 +3,7 @@ import { HumanTask } from '../types';
 
 export const HUMAN_TASKS: HumanTask[] = [
   {
-    id: "human_confirm", layer_id: "layer_outbound", task_type: "human",
+    id: "human_confirm", layer_id: "layer_outbound", task_type: "human", nature: "human", category: "user",
     name: "Confirm irreversible effect", slug: "confirm-effect",
     elevator_pitch: "Юзер подтверждает необратимое / non-self действие или future-behavior-commitment (авторинг WATCH). Переводит model-inferred write в confirmed.",
     example_usage: "Подтвердить рассылку в группу; подтвердить, что model-inferred edge — правда (confirm-to-edge).",

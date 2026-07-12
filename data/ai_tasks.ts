@@ -3,7 +3,7 @@ import { AiTask } from '../types';
 
 export const AI_TASKS: AiTask[] = [
   {
-    id: "brain_core", layer_id: "layer_internal", task_type: "ai",
+    id: "brain_core", layer_id: "layer_internal", task_type: "ai", nature: "model", category: "ai",
     name: "The one brain (_run_agent_inner)", slug: "one-brain",
     elevator_pitch: "Единственный реактивный core. Реактив И проактив идут через него — это ОДНА машина. Multi-round read-only tool loop, context minimalism, терминал = структурный respond.",
     example_usage: "Читает starter → тянет специфику тулами → решает: направить внимание или молчать.",

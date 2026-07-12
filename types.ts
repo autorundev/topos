@@ -83,9 +83,18 @@ export interface Relation {
   reason: string;
 }
 
+// PRIMARY axis — nature of the operation (probabilistic / deterministic / human).
+export type NodeNature = 'model' | 'code' | 'human';
+// SECONDARY axis — functional category (drives icon + label).
+export type NodeCategory =
+  | 'user' | 'ingest' | 'detect' | 'gate' | 'starter'
+  | 'ai' | 'graph' | 'nightly' | 'data' | 'effect';
+
 export interface BaseTask {
   id: string;
   layer_id: string;
+  nature: NodeNature;
+  category: NodeCategory;
   name: string;
   slug: string;
   elevator_pitch: string;
