@@ -93,38 +93,86 @@ const elk = new ELK();
 const portS = (id: string) => `${id}__s`;   // source port (output) → EAST
 const portT = (id: string) => `${id}__t`;   // target port (input)  → WEST
 
+const ELK_OPTS = {
+  'elk.algorithm': 'layered',
+  'elk.direction': 'RIGHT',
+  'elk.partitioning.activate': 'true',
+  'elk.edgeRouting': 'ORTHOGONAL',
+  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+  'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+  'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+  'elk.spacing.nodeNode': '58',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '150',
+  'elk.spacing.edgeNode': String(SAFE_ZONE),            // ← safe zone: edge ↔ foreign node
+  'elk.layered.spacing.edgeNodeBetweenLayers': String(SAFE_ZONE),
+  'elk.spacing.edgeEdge': '16',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+  'elk.spacing.portPort': '13',
+};
+
+// Assign k ports (sorted by partner Y) to `rows` slots, minimising crossings.
+// Not top-anchored: the shorter side is spread / aligned to its partner instead of always starting at row 0.
+function assignSlots(ports: { eid: string; py: number }[], rows: number, allYs: number[]): Record<string, number> {
+  const sorted = [...ports].sort((a, b) => a.py - b.py);
+  const n = sorted.length, res: Record<string, number> = {};
+  if (n === 0) return res;
+  if (n === rows) { sorted.forEach((p, i) => { res[p.eid] = i; }); return res; }
+  if (n === 1) {                                             // lone port → row aligned to its partner's vertical rank
+    const above = allYs.filter(y => y < sorted[0].py).length;
+    const f = allYs.length > 1 ? above / (allYs.length - 1) : 0.5;
+    res[sorted[0].eid] = Math.round(f * (rows - 1));
+    return res;
+  }
+  let prev = -1;                                             // n<rows: spread endpoints across the rows, keep order
+  sorted.forEach((p, i) => { let s = Math.round((i * (rows - 1)) / (n - 1)); if (s <= prev) s = prev + 1; res[p.eid] = s; prev = s; });
+  return res;
+}
+
 async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Pos; pts: EdgePts; handles: Handles; heights: Record<string, number> }> {
-  // ordered input/output edges per node → one I/O row each; ports pinned to row centres (FIXED_POS).
   const inList: Record<string, string[]> = {}, outList: Record<string, string[]> = {};
   edges.forEach(e => { (outList[e.source] ??= []).push(e.id); (inList[e.target] ??= []).push(e.id); });
-  const heights: Record<string, number> = {}, portsMap: Record<string, any[]> = {};
-  tasks.forEach(t => {
-    const ins = inList[t.id] ?? [], outs = outList[t.id] ?? [], hH = headerH(t);
-    const rowY = (r: number) => hH + r * ROW_H + ROW_H / 2;
-    portsMap[t.id] = [
-      ...ins.map((eid, r) => ({ id: portT(eid), x: 0, y: rowY(r), layoutOptions: { 'elk.port.side': 'WEST' } })),
-      ...outs.map((eid, r) => ({ id: portS(eid), x: NODE_W, y: rowY(r), layoutOptions: { 'elk.port.side': 'EAST' } })),
-    ];
-    heights[t.id] = hH + Math.max(ins.length, outs.length) * ROW_H + 6;
+  const heights: Record<string, number> = {};
+  tasks.forEach(t => { heights[t.id] = headerH(t) + Math.max(inList[t.id]?.length ?? 0, outList[t.id]?.length ?? 0) * ROW_H + 6; });
+
+  // PASS 1 — free port order (FIXED_SIDE): let ELK pick the crossing-minimal vertical order of each side.
+  const pass1 = {
+    id: 'root', layoutOptions: ELK_OPTS,
+    children: tasks.map(t => ({
+      id: t.id, width: NODE_W, height: heights[t.id],
+      layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_SIDE' },
+      ports: [
+        ...(inList[t.id] ?? []).map(eid => ({ id: portT(eid), layoutOptions: { 'elk.port.side': 'WEST' } })),
+        ...(outList[t.id] ?? []).map(eid => ({ id: portS(eid), layoutOptions: { 'elk.port.side': 'EAST' } })),
+      ],
+    })),
+    edges: edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
+  };
+  const r1: any = await elk.layout(pass1 as any);
+  const centreY: Record<string, number> = {}, pY1: Record<string, number> = {};
+  (r1.children ?? []).forEach((c: any) => {
+    centreY[c.id] = (c.y ?? 0) + (c.height ?? 0) / 2;
+    (c.ports ?? []).forEach((p: any) => { pY1[p.id] = (c.y ?? 0) + (p.y ?? 0); });
   });
-  const graph = {
-    id: 'root',
-    layoutOptions: {
-      'elk.algorithm': 'layered',
-      'elk.direction': 'RIGHT',
-      'elk.partitioning.activate': 'true',
-      'elk.edgeRouting': 'ORTHOGONAL',
-      'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
-      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
-      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
-      'elk.spacing.nodeNode': '58',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '150',
-      'elk.spacing.edgeNode': String(SAFE_ZONE),            // ← safe zone: edge ↔ foreign node
-      'elk.layered.spacing.edgeNodeBetweenLayers': String(SAFE_ZONE),
-      'elk.spacing.edgeEdge': '16',
-      'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
-      'elk.spacing.portPort': '13',
-    },
+
+  // slot assignment per node from pass-1 order (partner = the other endpoint's node centre)
+  const portsMap: Record<string, any[]> = {};
+  tasks.forEach(t => {
+    const ins = inList[t.id] ?? [], outs = outList[t.id] ?? [], hH = headerH(t), rows = Math.max(ins.length, outs.length);
+    const rowY = (r: number) => hH + r * ROW_H + ROW_H / 2;
+    const partnerY = (eid: string, other: string) => centreY[other] ?? pY1[eid] ?? 0;
+    const inParts = ins.map(eid => ({ eid, py: partnerY(portT(eid), edges.find(e => e.id === eid)!.source) }));
+    const outParts = outs.map(eid => ({ eid, py: partnerY(portS(eid), edges.find(e => e.id === eid)!.target) }));
+    const allYs = [...inParts, ...outParts].map(p => p.py);
+    const inSlot = assignSlots(inParts, rows, allYs), outSlot = assignSlots(outParts, rows, allYs);
+    portsMap[t.id] = [
+      ...ins.map(eid => ({ id: portT(eid), x: 0, y: rowY(inSlot[eid]), layoutOptions: { 'elk.port.side': 'WEST' } })),
+      ...outs.map(eid => ({ id: portS(eid), x: NODE_W, y: rowY(outSlot[eid]), layoutOptions: { 'elk.port.side': 'EAST' } })),
+    ];
+  });
+
+  // PASS 2 — pin ports to the assigned row centres (FIXED_POS) and route.
+  const pass2 = {
+    id: 'root', layoutOptions: ELK_OPTS,
     children: tasks.map(t => ({
       id: t.id, width: NODE_W, height: heights[t.id],
       layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_POS' },
@@ -132,7 +180,7 @@ async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Po
     })),
     edges: edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
   };
-  const res: any = await elk.layout(graph as any);
+  const res: any = await elk.layout(pass2 as any);
   const pos: Pos = {};
   const handles: Handles = {};
   (res.children ?? []).forEach((c: any) => {
@@ -210,9 +258,12 @@ type BrickData = { task: Task; color: string; opacity: number; selected: boolean
 function BrickNode({ data }: NodeProps) {
   const { task, color, opacity, selected, badges, families, handles, minH } = data as unknown as BrickData;
   const { icon: Icon, kind } = kindOf(task);
-  const inputs = handles.filter(h => h.kind === 'target').sort((a, b) => a.y - b.y);
-  const outputs = handles.filter(h => h.kind === 'source').sort((a, b) => a.y - b.y);
-  const rows = Math.max(inputs.length, outputs.length);
+  // place chips by their port's actual slot (ports may be spread, not top-anchored).
+  const hH = headerH(task);
+  const slotOf = (h: PortHandle) => Math.round((h.y - hH - ROW_H / 2) / ROW_H);
+  const inAt: (PortHandle | undefined)[] = [], outAt: (PortHandle | undefined)[] = [];
+  let rows = 0;
+  handles.forEach(h => { const s = slotOf(h); rows = Math.max(rows, s + 1); (h.kind === 'target' ? inAt : outAt)[s] = h; });
   return (
     <div className="rf-brick" title={task.elevator_pitch} style={{
       width: NODE_W, minHeight: minH, boxSizing: 'border-box', borderRadius: 11, border: `1.5px solid ${color}`,
@@ -252,8 +303,8 @@ function BrickNode({ data }: NodeProps) {
         <div style={{ padding: '0 12px 6px' }}>
           {Array.from({ length: rows }).map((_, r) => (
             <div key={r} style={{ height: ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-              <span style={{ minWidth: 0, display: 'flex' }}>{inputs[r] && <IOChip h={inputs[r]} />}</span>
-              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outputs[r] && <IOChip h={outputs[r]} />}</span>
+              <span style={{ minWidth: 0, display: 'flex' }}>{inAt[r] && <IOChip h={inAt[r]!} />}</span>
+              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outAt[r] && <IOChip h={outAt[r]!} />}</span>
             </div>
           ))}
         </div>
