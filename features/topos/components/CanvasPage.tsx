@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap, Panel, Handle,
   BaseEdge, EdgeLabelRenderer,
-  type Node, type Edge, type NodeProps, type EdgeProps, MarkerType, Position,
+  type Node, type Edge, type NodeProps, type EdgeProps, Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import ELK from 'elkjs/lib/elk.bundled.js';
@@ -195,8 +195,15 @@ function ElkEdge({ id, data, markerEnd, style }: EdgeProps) {
 }
 
 // ---- custom nodes ----
-const dotStyle = (c: string): React.CSSProperties => ({ background: c, border: '1.5px solid var(--surface, #101826)', width: 8, height: 8, borderRadius: '50%', opacity: 0.95 });
-type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: HandleSpec[] };
+// output port = diamond ◇, input port = triangle ▷ (points into the node); coloured by its edge.
+function portStyle(kind: 'source' | 'target', color: string): React.CSSProperties {
+  const base: React.CSSProperties = { width: 11, height: 11, background: color, border: 'none', borderRadius: 0 };
+  return kind === 'source'
+    ? { ...base, clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }
+    : { ...base, clipPath: 'polygon(0% 0%, 100% 50%, 0% 100%)' };
+}
+type PortHandle = HandleSpec & { color: string };
+type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[] };
 function BrickNode({ data }: NodeProps) {
   const { task, color, opacity, selected, badges, families, handles } = data as unknown as BrickData;
   const { icon: Icon, kind } = kindOf(task);
@@ -207,10 +214,10 @@ function BrickNode({ data }: NodeProps) {
       color: 'var(--text-main, #e6e9ee)', padding: '8px 11px 9px', opacity, transition: 'opacity .2s, box-shadow .12s, transform .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
-      {/* visible port dots at ELK-computed positions: outputs on the right, inputs on the left. */}
+      {/* port shapes at ELK-computed positions: ◇ output on the right, ▷ input on the left. */}
       {handles.map((h) => (
         <Handle key={h.id} id={h.id} type={h.kind} position={SIDE_POS[h.side]} isConnectable={false}
-          style={{ ...dotStyle(color), ...((h.side === 'EAST' || h.side === 'WEST') ? { top: h.y } : { left: h.x }) }} />
+          style={{ ...portStyle(h.kind, h.color), ...((h.side === 'EAST' || h.side === 'WEST') ? { top: h.y } : { left: h.x }) }} />
       ))}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
         <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
@@ -264,6 +271,17 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const examples = useMemo(() => toposService.getExamples(), []);
   const idSet = useMemo(() => new Set(tasks.map(t => t.id)), [tasks]);
   const raw = useMemo(() => rawEdges(tasks, idSet), [tasks, idSet]);
+
+  // each port takes the colour of its own edge (loop = amber).
+  const portColor = useMemo(() => {
+    const m: Record<string, string> = {};
+    raw.forEach(e => {
+      const isLoop = e.source === 'eff_respond' && e.target === 'det_detectors';
+      const c = isLoop ? '#e6a63c' : (EDGE_COLOR[e.rel.type] ?? '#8a8f98');
+      m[portS(e.id)] = c; m[portT(e.id)] = c;
+    });
+    return m;
+  }, [raw]);
 
   // run the layout+routing engine once — coords AND edge routes come from ELK.
   useEffect(() => {
@@ -324,11 +342,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
-        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, handles: handles[t.id] ?? [] },
+        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? layerColor(t.layer_id) })) },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, pos, handles]);
+  }, [tasks, flowIds, connected, selected, pos, handles, portColor]);
 
   const nodes = useMemo(() => [...zoneNodes, ...brickNodes], [zoneNodes, brickNodes]);
 
@@ -358,7 +376,6 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
           strokeWidth: (emph && (flowIds || focusId)) ? 2.4 : (isLoop ? 2.2 : (e.rel.strength === 'strong' ? 2 : 1.3)),
           strokeDasharray: isRead ? '1 6' : undefined, opacity: dim ? 0.06 : 0.9,
         },
-        markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 15, height: 15 },
         animated: isLoop || ((flowIds || focusId) ? (emph && wakesFlow) : false), zIndex: dim ? 0 : 1,
       } as Edge;
     }).filter(Boolean) as Edge[];
