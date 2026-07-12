@@ -8,7 +8,7 @@ import '@xyflow/react/dist/style.css';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import {
   LogIn, Radar, Filter, Layers, BrainCircuit, Wrench, Send,
-  Database, Moon, Sun, CircleCheck, Share2, Box, X,
+  Database, Moon, Sun, CircleCheck, Share2, Box, X, User, Rss,
 } from 'lucide-react';
 import { toposService } from '../../../services/toposService';
 import { TOPOS_DATA } from '../../../data';
@@ -66,6 +66,33 @@ const layerColor = (id: string) => toposService.getLayerById(id)?.color ?? '#666
 const ioLabel = (i: IOItem) => (typeof i === 'string' ? i : i.label);
 // data on an edge = the primary output of its source; both ports (out + in) carry it.
 const ioOut = (t?: Task | null) => (t?.io_spec?.outputs?.primary ? ioLabel(t.io_spec.outputs.primary) : '');
+
+// ═══════ functional category — the finer axis that drives node colour/icon.
+// inbound/internal/outbound stays only as the faint meta-cluster (zone box).
+type CatKey = 'user' | 'ingest' | 'detect' | 'route' | 'ai' | 'process' | 'data' | 'effect';
+const CATEGORIES: Record<CatKey, { label: string; color: string; icon: React.ComponentType<{ size?: number }> }> = {
+  user:    { label: 'Действия юзера', color: '#e0894a', icon: User },
+  ingest:  { label: 'Внешний вход',   color: '#d3b24a', icon: Rss },
+  detect:  { label: 'Детекторы',      color: '#9a6cd8', icon: Radar },
+  route:   { label: 'Маршрутизация',  color: '#4f8fd6', icon: Filter },
+  ai:      { label: 'Работа ИИ',      color: '#e0699f', icon: BrainCircuit },
+  process: { label: 'Граф / ночной',  color: '#6f76d6', icon: Share2 },
+  data:    { label: 'Данные',         color: '#6c8a9e', icon: Database },
+  effect:  { label: 'Эффект наружу',  color: '#46c48a', icon: Send },
+};
+const CATEGORY_OF: Record<string, CatKey> = {
+  trig_user_message: 'user', human_confirm: 'user',
+  trig_connector_sync: 'ingest', trig_cron: 'ingest',
+  det_detectors: 'detect',
+  gate_admission: 'route', starter_recipe: 'route',
+  brain_core: 'ai', tool_retrieve: 'ai',
+  eff_link_entities: 'process', proc_nightly: 'process',
+  store_conversation: 'data', store_focuses: 'data', store_memories: 'data', store_links: 'data', store_vault: 'data',
+  eff_respond: 'effect',
+};
+const catOf = (id: string): CatKey => CATEGORY_OF[id] ?? 'data';
+const catColor = (id: string) => CATEGORIES[catOf(id)].color;
+const catLabel = (id: string) => CATEGORIES[catOf(id)].label;
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
 const ROW_H = 34;   // one input/output row — tall enough for a 2-line chip
@@ -257,7 +284,7 @@ function IOChip({ h }: { h: PortHandle }) {
 type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[]; minH: number };
 function BrickNode({ data }: NodeProps) {
   const { task, color, opacity, selected, badges, families, handles, minH } = data as unknown as BrickData;
-  const { icon: Icon, kind } = kindOf(task);
+  const { icon: Icon } = kindOf(task);
   // place chips by their port's actual slot (ports may be spread, not top-anchored).
   const hH = headerH(task);
   const slotOf = (h: PortHandle) => Math.round((h.y - hH - ROW_H / 2) / ROW_H);
@@ -277,7 +304,7 @@ function BrickNode({ data }: NodeProps) {
       <div style={{ height: headerH(task), overflow: 'hidden', padding: '6px 12px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
           <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
-          <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.9 }}>{kind}</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.9 }}>{catLabel(task.id)}</span>
         </div>
         <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15 }}>{task.name}</div>
         {families.length > 0 && (
@@ -313,12 +340,13 @@ function BrickNode({ data }: NodeProps) {
   );
 }
 type ZoneData = { label: string; role: string; color: string };
+// meta-cluster only: faint neutral contour so the functional-category colours stay dominant.
 function ZoneNode({ data }: NodeProps) {
   const { label, role, color } = data as unknown as ZoneData;
   return (
-    <div style={{ width: '100%', height: '100%', borderRadius: 18, border: `1px dashed ${color}55`, background: `${color}0d` }}>
-      <div style={{ position: 'absolute', top: 10, left: 16, fontFamily: 'monospace', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color, opacity: 0.85 }}>
-        {label} <span style={{ opacity: 0.55, letterSpacing: 0, textTransform: 'none' }}>· {role}</span>
+    <div style={{ width: '100%', height: '100%', borderRadius: 18, border: `1px dashed ${color}2e`, background: `${color}07` }}>
+      <div style={{ position: 'absolute', top: 10, left: 16, fontFamily: 'monospace', fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color, opacity: 0.42 }}>
+        {label} <span style={{ letterSpacing: 0, textTransform: 'none' }}>· {role}</span>
       </div>
     </div>
   );
@@ -415,7 +443,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
-        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, minH: heights[t.id] ?? headerH(t) + ROW_H, handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? layerColor(t.layer_id), label: portLabel[h.id] ?? '' })) },
+        data: { task: t, color: catColor(t.id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, minH: heights[t.id] ?? headerH(t) + ROW_H, handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? catColor(t.id), label: portLabel[h.id] ?? '' })) },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
@@ -487,8 +515,12 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         {!selected && (
           <Panel position="top-right">
             <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'monospace', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)' }}>
-              <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>СЛОИ</div>
-              {layers.map(l => (<div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: l.color, display: 'inline-block' }} />{l.name}</div>))}
+              <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>КАТЕГОРИИ</div>
+              {(Object.keys(CATEGORIES) as CatKey[]).map(k => {
+                const cat = CATEGORIES[k]; const CatIcon = cat.icon;
+                return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-flex', color: cat.color }}><CatIcon size={11} /></span><span style={{ width: 9, height: 9, borderRadius: 2, background: cat.color, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{cat.label}</span></div>);
+              })}
+              <div style={{ opacity: 0.4, marginTop: 4 }}>зоны inbound·internal·outbound — мета-кластер</div>
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СВЯЗИ</div>
               {EDGE_LEGEND.map(([type, ru]) => {
                 const c = EDGE_COLOR[type.split(' ')[0]] ?? '#8a8f98';
@@ -514,8 +546,9 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 }
 
 function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; onClose: () => void }) {
-  const { icon: Icon, kind } = kindOf(task);
-  const color = layerColor(task.layer_id);
+  const { icon: Icon } = kindOf(task);
+  const color = catColor(task.id);
+  const cat = CATEGORIES[catOf(task.id)];
   const layer = toposService.getLayerById(task.layer_id);
   const io = task.io_spec;
   return (
@@ -523,12 +556,15 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ color }}><Icon size={16} /></span>
-          <span style={{ fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{kind}</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{cat.label}</span>
         </div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted,#9aa4b2)', cursor: 'pointer' }}><X size={16} /></button>
       </div>
       <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{task.name}</h2>
-      <div style={{ display: 'inline-block', fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, color, marginBottom: 10 }}>{layer?.name} · {layer?.role}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, color }}>{cat.label}</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>зона: {layer?.name}</span>
+      </div>
       <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted,#c2c9d4)', marginBottom: 12 }}>{task.elevator_pitch}</p>
       {task.example_usage && <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted,#9aa4b2)', marginBottom: 12, fontStyle: 'italic' }}>{task.example_usage}</p>}
       {BADGES[task.id] && <Section title="ОСИ">{BADGES[task.id].map(b => <Chip key={b} color={color}>{b}</Chip>)}</Section>}
