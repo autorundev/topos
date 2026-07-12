@@ -142,6 +142,18 @@ export interface TaxoNode {
   children?: TaxoNode[];
 }
 
+// --- Step 2a: per-child (real) I/O ports ---
+// Keyed by TaxoNode.id in data/taxonomy_io.ts. Populated for tool_retrieve
+// (from ~/vectoros/src/tools/_schemas.py input_schema.properties) and
+// det_detectors (from ~/vectoros/src/awareness/detectors/__init__.py
+// DETECTOR_SPECS) children only — stores/crons/connectors/admin have no
+// cheap per-child I/O and stay on the class's aggregate ports. See
+// docs/superpowers/specs/2026-07-13-step2-per-child-ports-plan.md.
+export interface TaxoIO {
+  inputs?: { name: string; required?: boolean }[];
+  outputs?: string[];
+}
+
 // --- New Node Entities ---
 
 export type DataCategory = 
