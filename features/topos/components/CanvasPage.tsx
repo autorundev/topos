@@ -34,10 +34,11 @@ const SAFE_ZONE = 34;
 const EDGE_COLOR: Record<string, string> = {
   writes_to: '#59708a', reads_from: '#3fb6c9', reduces: '#7a5cc4', wakes: '#e6a63c',
   actuates: '#42c48a', precedes: '#3b6ea5', enables: '#3b6ea5', requires_input_from: '#8a8f98',
+  surfaces: '#4bb0a2',
 };
 const EDGE_LEGEND = [
   ['writes_to', 'пишет в стор'], ['reads_from', 'читает из стора'], ['reduces', 'детектор-reducer'],
-  ['wakes', 'будит ум'], ['actuates', 'эффект'], ['enables / precedes', 'поток'], ['requires_input_from', 'тянет'],
+  ['wakes', 'будит ум'], ['actuates', 'эффект'], ['surfaces', 'наружу в поверхность'], ['enables / precedes', 'поток'], ['requires_input_from', 'тянет'],
 ] as const;
 const BADGES: Record<string, string[]> = {
   trig_user_message: ['always_open'], trig_connector_sync: ['selective'], trig_cron: ['selective', 'clock'],
@@ -62,6 +63,10 @@ function kindOf(t: Task): { icon: React.ComponentType<{ size?: number }>; kind: 
   if (isStore(id)) return { icon: Database, kind: 'store' };
   if (id === 'eff_respond') return { icon: Send, kind: 'effect' };
   if (id === 'human_confirm') return { icon: CircleCheck, kind: 'confirm' };
+  if (id === 'surf_tg') return { icon: MessageCircle, kind: 'surface' };
+  if (id === 'surf_miniapp') return { icon: LayoutDashboard, kind: 'surface' };
+  if (id === 'surf_web') return { icon: Globe, kind: 'surface' };
+  if (id === 'surf_push') return { icon: Bell, kind: 'surface' };
   return { icon: Box, kind: t.task_type };
 }
 const layerColor = (id: string) => toposService.getLayerById(id)?.color ?? '#666';
@@ -83,6 +88,7 @@ const CATEGORIES: Record<CatKey, { label: string; color: string; icon: React.Com
   nightly: { label: 'Ночной цикл',    color: '#7a63c0', icon: Moon },
   data:    { label: 'Данные',         color: '#6c8a9e', icon: Database },
   effect:  { label: 'Эффект наружу',  color: '#46c48a', icon: Send },
+  surface: { label: 'Поверхность',    color: '#4bb0a2', icon: LayoutDashboard },
 };
 const catOf = (id: string): CatKey => (toposService.getTaskById(id)?.category ?? 'data') as CatKey;
 const catLabel = (id: string) => CATEGORIES[catOf(id)].label;
@@ -116,8 +122,6 @@ const TOUCHPOINT_CAT: Record<string, string> = {
   conversational: 'диалог', screen_interface: 'экран', voice_audio: 'голос',
   technical: 'тех', spatial_computing: 'spatial', physical_devices: 'девайсы',
 };
-// touchpoints = output surfaces the effect surfaces through; all wired from eff_respond.
-const TOUCHPOINT_SOURCE = 'eff_respond';
 const ITEM_W = 174, ITEM_H = 54, ITEM_GX = 16, ITEM_GY = 14, BAND_LABEL = 30, BAND_PAD = 16, BAND_GAP = 66;
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
@@ -326,8 +330,6 @@ function BrickNode({ data }: NodeProps) {
     }}>
       {/* port shapes on the border: ◇ output right, ▷ input left — aligned to the I/O rows below */}
       {handles.map((h) => (<PortShape key={h.id} h={h} />))}
-      {/* hidden anchor for touchpoint connector edges (path drawn manually) */}
-      <Handle id="surf" type="source" position={Position.Right} isConnectable={false} style={{ opacity: 0, width: 1, height: 1, border: 'none', background: 'transparent', pointerEvents: 'none' }} />
       {/* header — fixed height so ELK ports stay aligned with the rows */}
       <div style={{ height: headerH(task), overflow: 'hidden', padding: '6px 12px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
@@ -401,7 +403,6 @@ function ItemNode({ data }: NodeProps) {
       color: 'var(--text-main, #e6e9ee)', padding: '7px 9px', opacity: dim ? 0.22 : 1, transition: 'opacity .2s, box-shadow .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
-      <Handle id="surf" type="target" position={Position.Left} isConnectable={false} style={{ opacity: 0, width: 1, height: 1, border: 'none', background: 'transparent', pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
         <span style={{ display: 'inline-flex', color }}><Icon size={12} /></span>
         <span style={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 8, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{category}</span>
@@ -426,7 +427,6 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const layers = useMemo(() => toposService.getLayers(), []);
   const examples = useMemo(() => toposService.getExamples(), []);
   const constraints = useMemo(() => toposService.getConstraints(), []);
-  const touchpoints = useMemo(() => toposService.getTouchpoints(), []);
   const idSet = useMemo(() => new Set(tasks.map(t => t.id)), [tasks]);
   const raw = useMemo(() => rawEdges(tasks, idSet), [tasks, idSet]);
 
@@ -442,7 +442,12 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   }, [raw]);
   const portLabel = useMemo(() => {
     const m: Record<string, string> = {};
-    raw.forEach(e => { const l = ioOut(toposService.getTaskById(e.source)); m[portS(e.id)] = l; m[portT(e.id)] = l; });
+    raw.forEach(e => {
+      const srcOut = ioOut(toposService.getTaskById(e.source));
+      const tgt = toposService.getTaskById(e.target);
+      m[portT(e.id)] = srcOut;                                                   // input chip = incoming datum
+      m[portS(e.id)] = tgt?.category === 'surface' ? (tgt.name ?? srcOut) : srcOut; // output → a surface: show the surface name
+    });
     return m;
   }, [raw]);
 
@@ -523,46 +528,21 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     const maxY = Math.max(...present.map(t => pos[t.id].y + (heights[t.id] ?? headerH(t) + ROW_H)));
     const bandW = maxX - minX;
     const cols = Math.max(1, Math.floor((bandW + ITEM_GX) / (ITEM_W + ITEM_GX)));
-    const zones: Node[] = [], items: any[] = [], tpEdges: { id: string; source: string; target: string; points: XY[] }[] = [];
-    // Constraints — grid band below the flow.
-    const lay = (list: any[], kind: 'constraint', topY: number) => {
-      const rows = Math.max(1, Math.ceil(list.length / cols));
-      list.forEach((it, i) => {
-        const r = Math.floor(i / cols), c = i % cols;
-        items.push({
-          id: `item_${it.id}`, itemId: it.id, kind, related: it.applies_to ?? [], raw: it,
-          position: { x: minX + c * (ITEM_W + ITEM_GX), y: topY + BAND_LABEL + r * (ITEM_H + ITEM_GY) },
-          data: { itemId: it.id, kind, label: it.name, category: CONSTRAINT_CAT[it.category] ?? it.category, color: BAND[kind].color, icon: ICONS[it.icon] ?? Box, related: it.applies_to ?? [] },
-        });
+    const zones: Node[] = [], items: any[] = [];
+    // Constraints — grid band below the flow (touchpoints are now full flow nodes, not a band).
+    const rows = Math.max(1, Math.ceil(constraints.length / cols));
+    constraints.forEach((it, i) => {
+      const r = Math.floor(i / cols), c = i % cols;
+      items.push({
+        id: `item_${it.id}`, itemId: it.id, kind: 'constraint', related: it.applies_to ?? [], raw: it,
+        position: { x: minX + c * (ITEM_W + ITEM_GX), y: maxY + BAND_GAP + BAND_LABEL + r * (ITEM_H + ITEM_GY) },
+        data: { itemId: it.id, kind: 'constraint', label: it.name, category: CONSTRAINT_CAT[it.category] ?? it.category, color: BAND.constraint.color, icon: ICONS[it.icon] ?? Box, related: it.applies_to ?? [] },
       });
-      const h = BAND_LABEL + rows * (ITEM_H + ITEM_GY) - ITEM_GY + BAND_PAD;
-      zones.push({ id: `band_${kind}`, type: 'band', position: { x: minX - 22, y: topY - 6 }, data: { label: BAND[kind].label, role: BAND[kind].role, color: BAND[kind].color }, style: { width: bandW + 44, height: h + 12 }, draggable: false, selectable: false, zIndex: -1 } as Node);
-      return topY + h + BAND_GAP;
-    };
-    lay(constraints, 'constraint', maxY + BAND_GAP);
-
-    // Touchpoints — output surfaces to the RIGHT of the effect; effect surfaces THROUGH each (wired edge).
-    const eff = pos[TOUCHPOINT_SOURCE];
-    if (eff && touchpoints.length) {
-      const effH = heights[TOUCHPOINT_SOURCE] ?? 120;
-      const tpX = eff.x + NODE_W + 130, tpH = ITEM_H, gY = 16;
-      const totalH = touchpoints.length * (tpH + gY) - gY;
-      const startY = eff.y + effH / 2 - totalH / 2;
-      const color = BAND.touchpoint.color;
-      touchpoints.forEach((it, i) => {
-        const ty = startY + i * (tpH + gY);
-        items.push({
-          id: `item_${it.id}`, itemId: it.id, kind: 'touchpoint', related: [TOUCHPOINT_SOURCE], raw: it,
-          position: { x: tpX, y: ty },
-          data: { itemId: it.id, kind: 'touchpoint', label: it.name, category: TOUCHPOINT_CAT[it.category] ?? it.category, color, icon: ICONS[it.icon] ?? Box, related: [TOUCHPOINT_SOURCE] },
-        });
-        const s = { x: eff.x + NODE_W, y: eff.y + effH / 2 }, t = { x: tpX, y: ty + tpH / 2 }, mx = (s.x + t.x) / 2;
-        tpEdges.push({ id: `tpedge_${it.id}`, source: TOUCHPOINT_SOURCE, target: `item_${it.id}`, points: [s, { x: mx, y: s.y }, { x: mx, y: t.y }, t] });
-      });
-      zones.push({ id: 'band_touchpoint', type: 'band', position: { x: tpX - 16, y: startY - 32 }, data: { label: BAND.touchpoint.label, role: 'поверхности вывода', color }, style: { width: ITEM_W + 32, height: totalH + 48 }, draggable: false, selectable: false, zIndex: -1 } as Node);
-    }
-    return { zones, items, tpEdges };
-  }, [pos, heights, tasks, constraints, touchpoints]);
+    });
+    const h = BAND_LABEL + rows * (ITEM_H + ITEM_GY) - ITEM_GY + BAND_PAD;
+    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 22, y: maxY + BAND_GAP - 6 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: bandW + 44, height: h + 12 }, draggable: false, selectable: false, zIndex: -1 } as Node);
+    return { zones, items };
+  }, [pos, heights, tasks, constraints]);
 
   const itemNodes: Node[] = useMemo(() => bands.items.map((it) => {
     const isSel = selItem?.raw?.id === it.itemId;
@@ -601,22 +581,8 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         animated: isLoop || ((flowIds || focusId) ? (emph && wakesFlow) : false), zIndex: dim ? 0 : 1,
       } as Edge;
     }).filter(Boolean) as Edge[];
-    // touchpoint connector edges (effect → surface): eff writes to vault AND surfaces here.
-    const tpColor = BAND.touchpoint.color;
-    const tpFocus = selItem?.raw?.id;
-    const tp = bands.tpEdges.map((te) => {
-      const tpId = te.target.replace('item_', '');
-      const bright = tpFocus === tpId || selected?.id === TOUCHPOINT_SOURCE;
-      const faded = (selItem || (selected && selected.id !== TOUCHPOINT_SOURCE) || flowIds) && !bright;
-      return {
-        id: te.id, source: te.source, target: te.target, sourceHandle: 'surf', targetHandle: 'surf', type: 'elk',
-        data: { points: te.points } as ElkEdgeData,
-        style: { stroke: tpColor, strokeWidth: bright ? 2.4 : 1.6, strokeDasharray: '5 4', opacity: faded ? 0.1 : 0.8 },
-        animated: bright, zIndex: faded ? 0 : 1,
-      } as Edge;
-    });
-    return [...list, ...tp];
-  }, [raw, pts, pos, bands, flowIds, connected, selected, selItem, showStores, isDark]);
+    return list;
+  }, [raw, pts, pos, flowIds, connected, selected, selItem, showStores, isDark]);
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type === 'item') {

@@ -88,7 +88,7 @@ export type NodeNature = 'model' | 'code' | 'human';
 // SECONDARY axis — functional category (drives icon + label).
 export type NodeCategory =
   | 'user' | 'ingest' | 'detect' | 'gate' | 'starter'
-  | 'ai' | 'graph' | 'nightly' | 'data' | 'effect';
+  | 'ai' | 'graph' | 'nightly' | 'data' | 'effect' | 'surface';
 
 export interface BaseTask {
   id: string;

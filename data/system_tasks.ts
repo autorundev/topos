@@ -206,7 +206,63 @@ export const SYSTEM_TASKS: SystemTask[] = [
     common_variants: ["send", "vault_write", "calendar_write", "silent"],
     relations: [
       { target_id: "store_conversation", type: "writes_to", strength: "strong", reason: "Эффект — сам write; персистится REPLY (awareness:<trigger>)." },
-      { target_id: "det_detectors", type: "reduces", strength: "medium", reason: "↺ Собственный эффект = write → снова триггерит детекторы (echo-guard DARK гасит self-storm)." }
+      { target_id: "det_detectors", type: "reduces", strength: "medium", reason: "↺ Собственный эффект = write → снова триггерит детекторы (echo-guard DARK гасит self-storm)." },
+      { target_id: "surf_tg", type: "surfaces", strength: "strong", reason: "Ответ уходит наружу в Telegram (audience-render)." },
+      { target_id: "surf_miniapp", type: "surfaces", strength: "medium", reason: "Состояние рендерится в Mini App." },
+      { target_id: "surf_web", type: "surfaces", strength: "medium", reason: "Веб-поверхности (vectoros.ai / autorun.dev)." },
+      { target_id: "surf_push", type: "surfaces", strength: "medium", reason: "Проактивные пуши/уведомления." }
     ]
+  },
+
+  // ═══════════════ SURFACES — граница системы (touchpoints как полноценные узлы) ═══════════════
+  {
+    id: "surf_tg", layer_id: "layer_inbound", task_type: "system", nature: "human", category: "surface",
+    name: "Telegram", slug: "surface-telegram",
+    elevator_pitch: "Главная поверхность. Сообщение юзера СНАЧАЛА уходит в Telegram, ПОТОМ доставляется к нам как write (trig_user_message). Ответ ума возвращается сюда же.",
+    example_usage: "Юзер пишет в чат → Telegram → наш вебхук → trig_user_message. Reply ← eff_respond → Telegram.",
+    io_spec: {
+      inputs: { required: [{ id: "data_reply", label: "Ответ ума" }], optional: [] },
+      outputs: { primary: { id: "data_msg", label: "Сообщение юзера" }, metadata: [] }
+    },
+    common_variants: ["text", "voice", "callback"],
+    relations: [
+      { target_id: "trig_user_message", type: "surfaces", strength: "strong", reason: "Telegram доставляет действие юзера в систему как write." }
+    ]
+  },
+  {
+    id: "surf_miniapp", layer_id: "layer_outbound", task_type: "system", nature: "human", category: "surface",
+    name: "Mini App", slug: "surface-miniapp",
+    elevator_pitch: "Экранная поверхность: Hub, Vault, фокусы, граф. Рендерит состояние наружу; читает vault-субстрат.",
+    example_usage: "eff_respond обновляет состояние → Mini App показывает Hub/Vault.",
+    io_spec: {
+      inputs: { required: [{ id: "data_render", label: "Состояние / reply" }], optional: [] },
+      outputs: { primary: { id: "data_view", label: "Экран" }, metadata: [] }
+    },
+    common_variants: ["hub", "vault", "graph"],
+    relations: []
+  },
+  {
+    id: "surf_web", layer_id: "layer_outbound", task_type: "system", nature: "human", category: "surface",
+    name: "Сайт", slug: "surface-web",
+    elevator_pitch: "Веб-поверхность (vectoros.ai / autorun.dev): лендинг, doc-зоны, аналитика.",
+    example_usage: "Публичные страницы + gated /p зоны.",
+    io_spec: {
+      inputs: { required: [{ id: "data_render", label: "Контент" }], optional: [] },
+      outputs: { primary: { id: "data_page", label: "Страница" }, metadata: [] }
+    },
+    common_variants: ["landing", "docs", "analytics"],
+    relations: []
+  },
+  {
+    id: "surf_push", layer_id: "layer_outbound", task_type: "system", nature: "human", category: "surface",
+    name: "Пуши", slug: "surface-push",
+    elevator_pitch: "Проактивные уведомления: утренний бриф, сигналы, deferred-reply — тот же эффект-гейт.",
+    example_usage: "Проактивный write → eff_respond → пуш в Telegram.",
+    io_spec: {
+      inputs: { required: [{ id: "data_notify", label: "Уведомление" }], optional: [] },
+      outputs: { primary: { id: "data_push", label: "Пуш" }, metadata: [] }
+    },
+    common_variants: ["morning_brief", "signal", "deferred_reply"],
+    relations: []
   }
 ];
