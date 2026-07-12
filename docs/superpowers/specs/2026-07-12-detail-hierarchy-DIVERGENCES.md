@@ -53,3 +53,100 @@ because ELK's layered+model-order layout happens to place seq-chained nodes roug
 sequence order (screenshot: 11 dream instances, first 6 visible in viewport in correct order).
 Not guaranteed by construction — a future pass could add an explicit index badge per instance
 card if the ELK ordering ever fights the seq order on a different (larger) family.
+
+## Step 1 — class-as-container
+
+Plan: `2026-07-12-detail-hierarchy-step1-plan.md`.
+
+### Taxo children no longer participate in ELK at all (not just "free ports")
+
+W2's model gave expanded family/instance nodes to ELK as FREE-port nodes in the same partition as
+their root class, with `contains`/`seq` edges routed by ELK. Step 1 replaces this entirely: an
+expanded class/family's children are positioned by the new pure `containerLayout` grid (relative
+coordinates), converted to absolute canvas coordinates once ELK has placed the class root. ELK now
+only ever sees the flow-level class nodes — an expanded one simply gets a bigger `width`/`height`
+(from `containerLayout(...).size`, reconciled with however many flow ports the class itself has).
+This is a bigger structural change than the plan's "keep it working" framing for nested families
+implies, but it's what "children laid out in a GRID inside the body between the gutters" requires:
+ELK's layered algorithm has no grid-wrap primitive, so a deterministic grid has to be computed
+outside it. Verified byte-for-byte parity for the collapsed-everywhere case (empty `expanded` set):
+every task falls into `computeLayout`'s `else` branch with the exact same `widths`/`heights`
+formula as before, so the flow-only ELK input is unchanged from pre-Step-1.
+
+### `contains`/`seq` edges dropped from render, not just visually recessed
+
+Per the plan ("Drop the thin `contains` edges from render... containment is now shown by the
+container box"), `taxoContainsEdges`/`taxoSeqEdges` are no longer turned into `Edge` objects at
+all — `CanvasPage` only consumes `visibleTaxo(...).nodes` now. `visibleTaxo` itself is untouched
+(frozen W2 interface); its `contains`/`seq` return arrays are computed but simply unused by the
+caller. The `contains` edge type/component (`ContainsEdgeComp`, `edgeTypes.contains`) stays
+registered — cheap to keep, in case a future pass wants the "light connector" alternative the
+step-1 plan explicitly left as "your call" (Step 1 chose numbered instance-card badges instead —
+see the dream chain below).
+
+### Known duplication: `containerLayout` re-derives the expand/collapse tree walk
+
+`containerLayout.ts`'s `childrenOf`/recursion and `visibleTaxo.ts`'s `walk` both independently
+decide, from the same `expanded: Set<string>`, which taxo nodes are visible and which render id
+they get (`taxoRenderId(classId, taxoId)`). This is a real single-source-of-truth tension: two
+functions implement the same recursion rather than one. Not resolved in Step 1 because
+`visibleTaxo` is a frozen, independently-tested W2 interface (its own script must "stay green")
+and it returns a FLAT metadata list, not the nested shape `containerLayout` needs for positioning.
+Both recurse under the identical condition (`expanded.has(renderId) && node has children`) and
+generate the same namespaced id per direct child, so in practice they stay in lock step for any
+given `expanded` set — verified together in `CanvasPage` (`containerFlat`, from `containerLayout`,
+and `taxoById`, from `visibleTaxo`, are cross-referenced by render id with no orphans in every
+smoke-tested scenario). Flagged here per "surface conflicts, don't average them" rather than
+silently accepted — a future pass could have `visibleTaxo` consume `containerLayout`'s cell list
+(or vice versa) to collapse this to one recursion, but that touches the frozen W2 interface and
+was out of scope for a "structure only" step.
+
+### Nested family: real sub-container (not the inline fallback)
+
+The plan allowed falling back to "instances added into the class grid inline" if recursion proved
+too risky. Recursion worked cleanly (see `containerLayout`'s own recursive call + the unit test's
+§2/§4 nested-container assertions and the Puppeteer smoke's step [b]) — nested containers are
+real, sized-by-their-own-grid boxes rendered by the same `ContainerNode` component (`variant:
+'family'`, no port gutters). No fallback needed.
+
+### Touch chevron: hit-area technique varies by call site, not just a "±2px" reading of "≥32×32"
+
+The owner ask was "≥32×32px hit area, padded, a filled rounded button (not a tiny glyph)". All
+three call sites render the SAME `TouchChevron` component at literal 32×32 (default `size`), but
+the WIRING differs by how much room the legacy layout gives:
+- `BrickNode` (collapsed class card): the chevron is a sibling `position:absolute` box in the
+  card's top-right corner, OUTSIDE the header's `overflow:hidden` box — chosen specifically so it
+  cannot perturb `headerH(task)`, which ELK's port-row math depends on pixel-for-pixel. Retrofitting
+  it into the existing tight header flex row (as W2 had it) would have required either shrinking
+  the visible glyph back down (defeating the ask) or growing `headerH(task)` (a port-alignment
+  regression risk this task's "Preserve" section explicitly guards against).
+- `FamilyNode` (collapsed family leaf card, 40px tall): same absolute-corner technique, vertically
+  centered via `top:50%`, for the same header-height-is-load-bearing reason (its label/`×N`
+  content row would otherwise reflow around a growing inline button).
+- `ContainerNode` header (class root or nested family, `CONTAINER_HEADER_H=40`, authored fresh
+  for Step 1): the chevron sits inline in the header's normal flex row — no legacy constraint to
+  work around, so no absolute-positioning trick needed.
+
+All three reach the literal ≥32×32 hit area; the difference is purely positioning strategy, kept
+distinct per-callsite risk rather than forcing one technique everywhere.
+
+### Dream order: numbered badges, not a connector
+
+The step-1 plan offered "number the cells 1..11 (or a light connector), your call." Chose
+numbering: `InstanceNode` renders a small circular `seq+1` badge instead of the plain nature dot
+when the underlying `TaxoNode` carries a `seq`. `containerLayout` also sorts a container's
+children by `seq` first (stable — unordered siblings keep their declared relative order) before
+grid-filling, so the numbered badges read in order through the grid's row-major fill (verified:
+unit test §4, `cells are seq-ordered 0..10 in grid fill order`). No new edge/connector geometry
+needed, unlike the "light connector" alternative.
+
+### Gutter width is a fixed constant, not port-count-driven
+
+`CONTAINER_GUTTER_W = 124` (port shape + up to a 98px-wide `IOChip` + edge padding) is the same
+regardless of how many ports a class has — `containerLayout` doesn't know the class's flow-port
+count (that lives in `computeLayout`'s `inList`/`outList`, derived from flow edges, not
+`TaxoNode` data). What DOES vary with port count is the container's HEIGHT: `computeLayout`
+reconciles `containerLayout`'s pure grid height against `header + portRows * ROW_H`, taking
+whichever is larger, so a class with more I/O ports than grid rows still gets enough vertical room
+for its port row spacing (this is the "reconciled" height in `containerLayouts[t.id]`, not the raw
+`containerLayout(...).size.h`).
