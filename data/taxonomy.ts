@@ -568,7 +568,7 @@ export const TAXONOMY: Record<string, TaxoNode[]> = {
     { id: 'starter_weave_deferred', name: 'weave_deferred', kind: 'instance', note: 'weave на сист. ходу → §5d.1 inject реактиву' },
     { id: 'starter_relationship_register', name: 'relationship_register', kind: 'instance', note: 'v60 · re-thread на unified' },
     { id: 'starter_slots_5d_5e_5g', name: '§5d·§5e·§5g слоты', kind: 'instance', status: 'dead', note: 'legacy слоты assembler + _g12 · удалены W10 07-10' },
-    { id: 'starter_deferred_reply_drain', name: 'deferred_reply drain', kind: 'instance', status: 'soak', note: 'legacy ОСТАЁТСЯ за флагом (§20-F · сеть #111)' },
+    { id: 'starter_deferred_reply_drain', name: 'deferred_reply drain', kind: 'instance', note: 'legacy ОСТАЁТСЯ за флагом (§20-F · сеть #111)' },
   ],
 
   // ═══════════════════════════ 03 · Машина (dream+eval) ═══════════════════════════
