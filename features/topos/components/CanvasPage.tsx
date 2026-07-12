@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap, Panel, Handle,
-  type Node, type Edge, type NodeProps, MarkerType, Position,
+  BaseEdge, EdgeLabelRenderer,
+  type Node, type Edge, type NodeProps, type EdgeProps, MarkerType, Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import ELK from 'elkjs/lib/elk.bundled.js';
@@ -17,9 +18,12 @@ import type { Task, IOItem } from '../../../types';
 const NODE_W = 210;
 type XY = { x: number; y: number };
 type Pos = Record<string, XY>;
+type EdgePts = Record<string, XY[]>;
 
 // left→right pipeline: inbound → internal → outbound. ELK partitions keep zones apart.
 const LAYER_ORDER: Record<string, number> = { layer_inbound: 0, layer_internal: 1, layer_outbound: 2 };
+// SAFE ZONE — clearance ELK keeps between any edge and a node it does NOT connect to.
+const SAFE_ZONE = 34;
 
 const EDGE_COLOR: Record<string, string> = {
   writes_to: '#59708a', reads_from: '#3fb6c9', reduces: '#7a5cc4', wakes: '#e6a63c',
@@ -38,7 +42,6 @@ const BADGES: Record<string, string[]> = {
 };
 const isStore = (id: string) => id.startsWith('store_');
 const isStoreEdgeType = (t: string) => t === 'writes_to' || t === 'reads_from';
-const SIDE_POS: Record<string, Position> = { l: Position.Left, r: Position.Right, t: Position.Top, b: Position.Bottom };
 
 function kindOf(t: Task): { icon: React.ComponentType<{ size?: number }>; kind: string } {
   const id = t.id;
@@ -57,7 +60,6 @@ function kindOf(t: Task): { icon: React.ComponentType<{ size?: number }>; kind: 
 }
 const layerColor = (id: string) => toposService.getLayerById(id)?.color ?? '#666';
 const ioLabel = (i: IOItem) => (typeof i === 'string' ? i : i.label);
-const hStyle = (c: string): React.CSSProperties => ({ background: c, border: 'none', width: 6, height: 6, opacity: 0.85 });
 
 // approximate rendered height so ELK reserves the right vertical space per node.
 function nodeH(t: Task): number {
@@ -68,7 +70,7 @@ function nodeH(t: Task): number {
   return h;
 }
 
-// ═══════════════ auto-layout (ELK) — runs once, no hand-tuned coords ═══════════════
+// ═══════════════ auto-layout + edge-routing (ELK) — no hand-tuned coords ═══════════════
 type RawEdge = { id: string; source: string; target: string; rel: any };
 
 function rawEdges(tasks: Task[], idSet: Set<string>): RawEdge[] {
@@ -82,21 +84,24 @@ function rawEdges(tasks: Task[], idSet: Set<string>): RawEdge[] {
 
 const elk = new ELK();
 
-async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<Pos> {
+async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Pos; pts: EdgePts }> {
   const graph = {
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'RIGHT',
       'elk.partitioning.activate': 'true',
+      'elk.edgeRouting': 'ORTHOGONAL',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
-      'elk.spacing.nodeNode': '46',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '120',
-      'elk.spacing.edgeNode': '26',
-      'elk.spacing.edgeEdge': '14',
-      'elk.layered.spacing.edgeEdgeBetweenLayers': '14',
+      'elk.spacing.nodeNode': '58',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '150',
+      'elk.spacing.edgeNode': String(SAFE_ZONE),            // ← safe zone: edge ↔ foreign node
+      'elk.layered.spacing.edgeNodeBetweenLayers': String(SAFE_ZONE),
+      'elk.spacing.edgeEdge': '16',
+      'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+      'elk.spacing.portPort': '14',
     },
     children: tasks.map(t => ({
       id: t.id, width: NODE_W, height: nodeH(t),
@@ -107,74 +112,73 @@ async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<Pos> {
   const res: any = await elk.layout(graph as any);
   const pos: Pos = {};
   (res.children ?? []).forEach((c: any) => { pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 }; });
-  return pos;
-}
-
-// force a fixed gutter between the three layer-zones so groups never overlap.
-function applyZoneGutter(pos: Pos, tasks: Task[], gutter = 150) {
-  const byLayer: Record<number, string[]> = {};
-  tasks.forEach(t => { const l = LAYER_ORDER[t.layer_id] ?? 1; (byLayer[l] ??= []).push(t.id); });
-  const layerKeys = Object.keys(byLayer).map(Number).sort((a, b) => a - b);
-  let prevRight = -Infinity;
-  layerKeys.forEach(l => {
-    const ids = byLayer[l];
-    const minX = Math.min(...ids.map(id => pos[id].x));
-    let shift = 0;
-    if (prevRight > -Infinity) shift = (prevRight + gutter) - minX;
-    if (shift) ids.forEach(id => { pos[id].x += shift; });
-    prevRight = Math.max(...ids.map(id => pos[id].x + NODE_W));
+  const pts: EdgePts = {};
+  (res.edges ?? []).forEach((e: any) => {
+    const sec = e.sections?.[0];
+    if (!sec) return;
+    pts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
   });
+  return { pos, pts };
 }
 
-// ═══════════════ per-edge port allocation (source+target on one side never collide) ═══════════════
-// pure geometry: rightward = flow; leftward = feedback routed under; vertical = top/bottom.
-function sideFor(s?: XY, t?: XY) {
-  if (!s || !t) return { ss: 'r', ts: 'l', back: false };
-  const dx = t.x - s.x, dy = t.y - s.y;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    if (dx < -40) return { ss: 'b', ts: 'b', back: true };   // feedback loop → U-route under
-    return { ss: 'r', ts: 'l', back: false };                // forward flow →
+// rounded orthogonal SVG path through ELK bend points.
+function orthoPath(p: XY[], radius = 12): string {
+  if (p.length < 2) return '';
+  const dist = (a: XY, b: XY) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  let d = `M ${p[0].x},${p[0].y}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const cur = p[i], prev = p[i - 1], next = p[i + 1];
+    const d1 = dist(prev, cur), d2 = dist(cur, next);
+    const r = Math.min(radius, d1 / 2, d2 / 2);
+    const c1 = { x: cur.x + (prev.x - cur.x) / d1 * r, y: cur.y + (prev.y - cur.y) / d1 * r };
+    const c2 = { x: cur.x + (next.x - cur.x) / d2 * r, y: cur.y + (next.y - cur.y) / d2 * r };
+    d += ` L ${c1.x},${c1.y} Q ${cur.x},${cur.y} ${c2.x},${c2.y}`;
   }
-  return dy > 0 ? { ss: 'b', ts: 't', back: false }          // downward ↓
-                : { ss: 't', ts: 'b', back: false };         // upward ↑
+  const last = p[p.length - 1];
+  d += ` L ${last.x},${last.y}`;
+  return d;
+}
+// arc-length midpoint of the polyline — where the label sits.
+function midOf(p: XY[]): XY {
+  if (p.length === 1) return p[0];
+  const seg: number[] = []; let total = 0;
+  for (let i = 1; i < p.length; i++) { const l = Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); seg.push(l); total += l; }
+  let acc = 0; const half = total / 2;
+  for (let i = 0; i < seg.length; i++) {
+    if (acc + seg[i] >= half) { const t = (half - acc) / (seg[i] || 1); return { x: p[i].x + (p[i + 1].x - p[i].x) * t, y: p[i].y + (p[i + 1].y - p[i].y) * t }; }
+    acc += seg[i];
+  }
+  return p[Math.floor(p.length / 2)];
 }
 
-type EdgeSpec = RawEdge & { ss: string; ts: string; back: boolean; sourceHandle?: string; targetHandle?: string };
-type HandleSpec = { id: string; kind: 'source' | 'target'; side: string; pct: number };
-
-function allocatePorts(raw: RawEdge[], pos: Pos): { edgeSpecs: EdgeSpec[]; handlesByNode: Record<string, HandleSpec[]> } {
-  const specs: EdgeSpec[] = raw.map(e => {
-    const { ss, ts, back } = sideFor(pos[e.source], pos[e.target]);
-    return { ...e, ss, ts, back };
-  });
-  // one bucket per (node, side): both incoming and outgoing handles share the line → spread together.
-  type Need = { spec: EdgeSpec; role: 'source' | 'target'; other: string };
-  const buckets: Record<string, Need[]> = {};
-  specs.forEach(s => {
-    (buckets[`${s.source}|${s.ss}`] ??= []).push({ spec: s, role: 'source', other: s.target });
-    (buckets[`${s.target}|${s.ts}`] ??= []).push({ spec: s, role: 'target', other: s.source });
-  });
-  const handlesByNode: Record<string, HandleSpec[]> = {};
-  Object.entries(buckets).forEach(([key, list]) => {
-    const [node, side] = key.split('|');
-    const horiz = side === 'l' || side === 'r';
-    list.sort((a, b) => horiz
-      ? (pos[a.other]?.y ?? 0) - (pos[b.other]?.y ?? 0)
-      : (pos[a.other]?.x ?? 0) - (pos[b.other]?.x ?? 0));
-    list.forEach((need, i) => {
-      const pct = ((i + 1) / (list.length + 1)) * 100;
-      const hid = `${need.role[0]}-${side}-${i}-${need.spec.id}`;
-      if (need.role === 'source') need.spec.sourceHandle = hid; else need.spec.targetHandle = hid;
-      (handlesByNode[node] ??= []).push({ id: hid, kind: need.role, side, pct });
-    });
-  });
-  return { edgeSpecs: specs, handlesByNode };
+// ---- custom edge: draws the exact ELK route ----
+type ElkEdgeData = { points: XY[]; label?: string; labelColor?: string; labelBg?: string; showLabel?: boolean };
+function ElkEdge({ id, data, markerEnd, style }: EdgeProps) {
+  const d = data as unknown as ElkEdgeData;
+  if (!d?.points || d.points.length < 2) return null;
+  const path = orthoPath(d.points);
+  const lp = midOf(d.points);
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      {d.showLabel && d.label && (
+        <EdgeLabelRenderer>
+          <div style={{
+            position: 'absolute', transform: `translate(-50%,-50%) translate(${lp.x}px,${lp.y}px)`,
+            fontFamily: 'monospace', fontSize: 9, fontWeight: 400, color: d.labelColor,
+            background: d.labelBg, padding: '1px 4px', borderRadius: 3, pointerEvents: 'none', whiteSpace: 'nowrap',
+          }}>{d.label}</div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
 }
 
 // ---- custom nodes ----
-type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: HandleSpec[] };
+const HIDDEN_HANDLE: React.CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 1, minHeight: 1, border: 'none', background: 'transparent', pointerEvents: 'none' };
+type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[] };
 function BrickNode({ data }: NodeProps) {
-  const { task, color, opacity, selected, badges, families, handles } = data as unknown as BrickData;
+  const { task, color, opacity, selected, badges, families } = data as unknown as BrickData;
   const { icon: Icon, kind } = kindOf(task);
   return (
     <div className="rf-brick" title={task.elevator_pitch} style={{
@@ -183,10 +187,9 @@ function BrickNode({ data }: NodeProps) {
       color: 'var(--text-main, #e6e9ee)', padding: '8px 11px 9px', opacity, transition: 'opacity .2s, box-shadow .12s, transform .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
-      {handles.map((h) => (
-        <Handle key={h.id} id={h.id} type={h.kind} position={SIDE_POS[h.side]}
-          style={{ ...hStyle(color), ...(h.side === 'l' || h.side === 'r' ? { top: `${h.pct}%` } : { left: `${h.pct}%` }) }} />
-      ))}
+      {/* hidden handles: satisfy React Flow edge attachment; the drawn path comes from ELK, not from these. */}
+      <Handle id="src" type="source" position={Position.Right} style={HIDDEN_HANDLE} isConnectable={false} />
+      <Handle id="tgt" type="target" position={Position.Left} style={HIDDEN_HANDLE} isConnectable={false} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
         <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
         <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.9 }}>{kind}</span>
@@ -225,13 +228,14 @@ function ZoneNode({ data }: NodeProps) {
   );
 }
 const nodeTypes = { brick: BrickNode, zone: ZoneNode };
+const edgeTypes = { elk: ElkEdge };
 
 export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string } = {}) {
   const { isDark, toggle } = useDarkMode();
   const [activeFlow, setActiveFlow] = useState<string | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [showStores, setShowStores] = useState(true);
-  const [pos, setPos] = useState<Pos | null>(null);
+  const [layout, setLayout] = useState<{ pos: Pos; pts: EdgePts } | null>(null);
 
   const tasks = useMemo(() => toposService.getTasks(), []);
   const layers = useMemo(() => toposService.getLayers(), []);
@@ -239,18 +243,15 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const idSet = useMemo(() => new Set(tasks.map(t => t.id)), [tasks]);
   const raw = useMemo(() => rawEdges(tasks, idSet), [tasks, idSet]);
 
-  // run the layout engine once — positions come from ELK, never from hand-tuned constants.
+  // run the layout+routing engine once — coords AND edge routes come from ELK.
   useEffect(() => {
     let alive = true;
-    computeLayout(tasks, raw).then(p => {
-      if (!alive) return;
-      applyZoneGutter(p, tasks);
-      setPos(p);
-    }).catch(err => console.error('ELK layout failed', err));
+    computeLayout(tasks, raw).then(l => { if (alive) setLayout(l); }).catch(err => console.error('ELK layout failed', err));
     return () => { alive = false; };
   }, [tasks, raw]);
 
-  const graph = useMemo(() => pos ? allocatePorts(raw, pos) : { edgeSpecs: [], handlesByNode: {} }, [raw, pos]);
+  const pos = layout?.pos ?? null;
+  const pts = layout?.pts ?? {};
 
   const flowIds = useMemo(() => {
     if (!activeFlow) return null;
@@ -300,17 +301,19 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
-        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, handles: graph.handlesByNode[t.id] ?? [] },
+        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, graph, pos]);
+  }, [tasks, flowIds, connected, selected, pos]);
 
   const nodes = useMemo(() => [...zoneNodes, ...brickNodes], [zoneNodes, brickNodes]);
 
   const edges: Edge[] = useMemo(() => {
+    if (!pos) return [];
     const focusId = selected?.id ?? null;
-    return graph.edgeSpecs.map((e) => {
+    const centre = (id: string) => ({ x: pos[id].x + NODE_W / 2, y: pos[id].y + nodeH(toposService.getTaskById(id) as Task) / 2 });
+    return raw.map((e) => {
       if (isStoreEdgeType(e.rel.type) && !showStores) return null;
       const color = EDGE_COLOR[e.rel.type] ?? '#8a8f98';
       const isLoop = e.source === 'eff_respond' && e.target === 'det_detectors';
@@ -319,22 +322,24 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       if (flowIds) { emph = flowIds.has(e.source) && flowIds.has(e.target); dim = !emph; }
       else if (focusId) { emph = e.source === focusId || e.target === focusId; dim = !emph; }
       const wakesFlow = e.rel.type === 'wakes' || e.rel.type === 'actuates';
+      const stroke = isLoop ? '#e6a63c' : color;
+      const points = pts[e.id] ?? [centre(e.source), centre(e.target)];
       return {
-        id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle,
-        type: 'smoothstep', pathOptions: { borderRadius: 14, offset: e.back ? 42 : 16 } as any,
-        label: isLoop ? '↺ эффект = write' : e.rel.type,
-        labelStyle: { fontSize: isLoop ? 10 : 9, fontFamily: 'monospace', fill: isLoop ? '#e6a63c' : color, fontWeight: isLoop ? 700 : 400 },
-        labelBgStyle: { fill: isDark ? '#0b1420' : '#f4f6f8', fillOpacity: 0.82 }, labelBgPadding: [4, 2] as [number, number],
+        id: e.id, source: e.source, target: e.target, sourceHandle: 'src', targetHandle: 'tgt', type: 'elk',
+        data: {
+          points, label: isLoop ? '↺ эффект = write' : e.rel.type, showLabel: !dim,
+          labelColor: isLoop ? '#e6a63c' : color, labelBg: isDark ? 'rgba(11,20,32,.82)' : 'rgba(244,246,248,.85)',
+        } as ElkEdgeData,
         style: {
-          stroke: isLoop ? '#e6a63c' : color,
+          stroke,
           strokeWidth: (emph && (flowIds || focusId)) ? 2.4 : (isLoop ? 2.2 : (e.rel.strength === 'strong' ? 2 : 1.3)),
-          strokeDasharray: e.back ? '7 5' : (isRead ? '1 6' : undefined), opacity: dim ? 0.06 : 0.9,
+          strokeDasharray: isRead ? '1 6' : undefined, opacity: dim ? 0.06 : 0.9,
         },
-        markerEnd: { type: MarkerType.ArrowClosed, color: isLoop ? '#e6a63c' : color, width: 15, height: 15 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 15, height: 15 },
         animated: isLoop || ((flowIds || focusId) ? (emph && wakesFlow) : false), zIndex: dim ? 0 : 1,
       } as Edge;
     }).filter(Boolean) as Edge[];
-  }, [graph, flowIds, connected, selected, showStores, isDark]);
+  }, [raw, pts, pos, flowIds, connected, selected, showStores, isDark]);
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type === 'zone') return;
@@ -352,7 +357,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   return (
     <div style={{ position: 'relative', width: '100%', height, background: isDark ? '#0a1018' : '#f4f6f8' }}>
       <ReactFlow
-        nodes={nodes} edges={edges} nodeTypes={nodeTypes} colorMode={isDark ? 'dark' : 'light'}
+        nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} colorMode={isDark ? 'dark' : 'light'}
         onNodeClick={onNodeClick} onPaneClick={() => setSelected(null)}
         fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.2} proOptions={{ hideAttribution: true }}
       >
