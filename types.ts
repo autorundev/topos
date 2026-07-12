@@ -124,6 +124,24 @@ export interface SystemTask extends BaseTask {
 
 export type Task = AiTask | HumanTask | SystemTask;
 
+// --- Detail Hierarchy (drill-down taxonomy) ---
+// Family -> instance tree attached to a class-level flow node (BaseTask.id).
+// See docs/superpowers/specs/2026-07-12-detail-hierarchy-design.md.
+
+export type TaxoKind = 'family' | 'instance';
+export type NodeStatus = 'live' | 'todo' | 'dead' | 'soak';
+
+export interface TaxoNode {
+  id: string;            // stable slug, UNIQUE within its class subtree
+  name: string;          // Russian, from internals
+  kind: TaxoKind;
+  nature?: NodeNature;   // default = parent class nature; override per rules below
+  status?: NodeStatus;   // default 'live'
+  note?: string;         // Russian tooltip, from internals note
+  seq?: number;          // ordered position among siblings (dream); omit = unordered set
+  children?: TaxoNode[];
+}
+
 // --- New Node Entities ---
 
 export type DataCategory = 

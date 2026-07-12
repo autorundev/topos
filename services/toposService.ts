@@ -12,8 +12,10 @@ import {
   WorkflowTemplate,
   Example,
   NodeType,
-  ToposData
+  ToposData,
+  TaxoNode
 } from '../types';
+import { TAXONOMY } from '../data/taxonomy';
 
 export type RelationshipType = 'upstream' | 'downstream' | 'lateral' | 'conflict';
 
@@ -130,6 +132,28 @@ class ToposService {
   getTaskById(id: string): Task | undefined {
     this._getData(); // Ensure data is loaded
     return this._allTasks.find(t => t.id === id);
+  }
+
+  // --- Taxonomy (detail hierarchy — family/instance drill-down) ---
+
+  /** Returns the family/instance tree for a class id, or [] when no taxonomy entry exists. */
+  getTaxonomy(classId: string): TaxoNode[] {
+    return TAXONOMY[classId] ?? [];
+  }
+
+  /** Depth-first flatten of a taxonomy tree, including every descendant (families + instances). */
+  flattenTaxo(nodes: TaxoNode[]): TaxoNode[] {
+    const out: TaxoNode[] = [];
+    const walk = (list: TaxoNode[]) => {
+      for (const node of list) {
+        out.push(node);
+        if (node.children && node.children.length > 0) {
+          walk(node.children);
+        }
+      }
+    };
+    walk(nodes);
+    return out;
   }
 
   // --- Artifacts (Data, Constraints, Touchpoints) ---
