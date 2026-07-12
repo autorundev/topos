@@ -388,25 +388,36 @@ function MembershipHandles() {
     </>
   );
 }
-// Touch-friendly expand/collapse affordance (owner ask): ≥32×32px hit area, filled rounded
-// button, clear ▸/▾ state. Positioned by the caller (absolutely, in a corner, when retrofitting
-// into a tight legacy header row whose height feeds ELK's port-alignment math and must not
-// change — or inline via normal flex flow when the caller controls the whole header, e.g.
-// ContainerNode). `stopPropagation` so it never also triggers the card's own click (select).
-function TouchChevron({ color, expanded, onToggle, size = 32 }: { color: string; expanded: boolean; onToggle: () => void; size?: number }) {
+// Touch-friendly expand/collapse affordance (owner ask): a SMALL filled rounded visual glyph
+// (`glyph`≈16px) with a LARGE invisible tap area (`hit`≈32px) — the button is transparent and
+// carries the tap area via `padding`, while `margin: -pad` cancels that padding's layout footprint
+// so the control occupies only `glyph` px in flow (and the tap area harmlessly overlaps the card's
+// dead top-right corner). This keeps the ≥32px touch target WITHOUT reserving 32px of visual width:
+// the earlier 32px *visual* box forced the collapsed class-card titles to reserve 36px and wrap to
+// 2 lines (headerH assumes 1 line) — a regression vs base. The filled rounded look lives on the
+// inner `<span>` (the button bg is transparent so the padded tap zone stays invisible).
+// `stopPropagation` so a tap toggles without also triggering the card's own click (select).
+function TouchChevron({ color, expanded, onToggle, glyph = 16, hit = 32 }: { color: string; expanded: boolean; onToggle: () => void; glyph?: number; hit?: number }) {
+  const pad = Math.max(0, (hit - glyph) / 2);
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onToggle(); }}
       title={expanded ? 'свернуть состав' : 'развернуть состав'}
       aria-label={expanded ? 'свернуть состав' : 'развернуть состав'}
       style={{
-        flex: '0 0 auto', width: size, height: size, boxSizing: 'border-box',
+        flex: '0 0 auto', boxSizing: 'content-box',
+        width: glyph, height: glyph, padding: pad, margin: -pad,
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        borderRadius: 9, border: `1.3px solid ${color}66`, background: `${color}22`, color,
-        cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0,
+        background: 'transparent', border: 'none', color, cursor: 'pointer', lineHeight: 1,
+        WebkitTapHighlightColor: 'transparent',
       }}
     >
-      {expanded ? '▾' : '▸'}
+      <span aria-hidden style={{
+        width: glyph, height: glyph, boxSizing: 'border-box',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: 6, border: `1.3px solid ${color}66`, background: `${color}22`, color,
+        fontSize: 11, lineHeight: 1,
+      }}>{expanded ? '▾' : '▸'}</span>
     </button>
   );
 }
@@ -432,7 +443,10 @@ function BrickNode({ data }: NodeProps) {
       {/* default anchors kept for handle-mount parity with the taxo leaf cards */}
       <MembershipHandles />
       {/* touch chevron — absolutely positioned OUTSIDE the header's overflow:hidden box (a sibling,
-          not a row member) so its 32×32 hit area doesn't perturb headerH(task) / ELK port math. */}
+          not a row member) so nothing perturbs headerH(task) / ELK port math. The 16px VISUAL sits
+          in the top-right corner (next to the nature pill); its 32px invisible tap area spills up-
+          right into the card's dead corner. The visual is small enough (y≈6–22) to clear the title
+          row below (y≈25+), so the title no longer needs a right reserve and won't wrap. */}
       {hasTaxonomy && (
         <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}>
           <TouchChevron color={color} expanded={taxoExpanded} onToggle={() => onToggleTaxo(task.id)} />
@@ -445,7 +459,10 @@ function BrickNode({ data }: NodeProps) {
           <span style={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 9, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catLabel(task.id)}</span>
           <span style={{ flex: '0 0 auto', fontFamily: 'monospace', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES[natureOf(task.id)].short}</span>
         </div>
-        <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15, paddingRight: hasTaxonomy ? 36 : 0 }}>{task.name}</div>
+        {/* no right reserve for the chevron (the 16px visual sits a row above the title) — restores
+            the pre-Step-1 full-width title. nowrap+ellipsis guards against ever wrapping to a 2nd
+            line, which headerH() does not budget for. */}
+        <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.name}</div>
         {families.length > 0 && (
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
             {families.map(f => {
@@ -488,7 +505,9 @@ function FamilyNode({ id, data }: NodeProps) {
       position: 'relative', width: TAXO_W, height: TAXO_H.family, boxSizing: 'border-box', borderRadius: 8, border: `1.3px solid ${color}`,
       background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5,
-      padding: hasChildren ? '0 38px 0 8px' : '0 8px', cursor: 'pointer',
+      // reserve only the 16px chevron visual (+ gap), not a full 32px box — the tap area extends
+      // invisibly over the ×N count / right edge, which is fine on a small leaf card.
+      padding: hasChildren ? '0 26px 0 8px' : '0 8px', cursor: 'pointer',
       opacity, transition: 'opacity .2s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
