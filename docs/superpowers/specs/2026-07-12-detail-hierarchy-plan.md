@@ -20,8 +20,9 @@ Files: `types.ts`, `data/taxonomy.ts` (NEW), `services/toposService.ts` (helper)
   formulation_review→secretary→curation→meta).
 - `services/toposService.ts`: `getTaxonomy(classId): TaxoNode[]` (returns `TAXONOMY[classId] ?? []`)
   and `flattenTaxo(nodes): TaxoNode[]` helper.
-- **AC**: `npm run build` green (TS strict). Counts match internals: detectors 41, connectors 16,
-  tools 78, vault ~65, admin 29, crons 46, personas 7. Every TAXONOMY key is a real task id
+- **AC**: `npm run build` green (TS strict). Exact `Z`-derived counts: detectors 41, connectors 17,
+  tools 78, vault 68, admin 29, crons 47, personas 7 + models 3 (banner's 16/~65/46 were
+  approximations). Every TAXONOMY key is a real task id
   (`toposService.getTaskById` non-undefined). Every child `id` unique within its class subtree.
   A throwaway node script asserts these and prints the tallies.
 

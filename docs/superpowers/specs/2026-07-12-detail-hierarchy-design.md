@@ -9,13 +9,15 @@ Repo: `autorundev/topos` · file: `features/topos/components/CanvasPage.tsx`, `d
 The Topos map shows VectorOS as ~20 **class-level** nodes (Detectors, Tools, `vault`, …).
 Each class's real members live as flat, non-interactive strings in `common_variants`
 (`"drift ×16"`, `"engagement ×10"`). There is no way to see, or click into, the actual
-representatives — the 41 detectors, 78 tools, 65 vault tables, 46 crons. The owner wants
+representatives — the 41 detectors, 78 tools, 68 vault tables, 47 crons. The owner wants
 to drill from cluster → class → family → instance and inspect concrete components.
 
 A fully code-extracted, name-by-name inventory already exists as a separate flat Cytoscape
 page: `/home/anton/autorun.dev/p/proactive/internals.html` (the `Z` object — 41 detectors /
-16 connectors / 78 tools / ~65 vault + 29 admin / 46 crons / 7 personas, each with a
-family-tagged note, colour, and status, extracted 2026-07-08, statuses 2026-07-10). This
+17 connectors / 78 tools / 68 vault + 29 admin / 47 crons / 7 personas, each with a
+family-tagged note, colour, and status, extracted 2026-07-08, statuses 2026-07-10; the
+banner's "16 connectors / ~65 vault / 46 crons" are approximations — the exact `Z` counts
+are 17 / 68 / 47). This
 design brings that detail **into** the Topos ELK flow map as clickable, expandable nodes,
 unifying the two views.
 
@@ -96,13 +98,13 @@ shipped) transforms `Z` → `TAXONOMY`:
 
 | `internals` zone | Topos class(es) | Families |
 |---|---|---|
-| 01 Вход | `trig_connector_sync` (16 connectors) | source / websearch / biometric |
+| 01 Вход | `trig_connector_sync` (17 connectors) | source / websearch / biometric |
 | 02 Детекторы (41) | `det_detectors` | drift·engagement·reflective·onboarding·lifecycle·safety·care |
 | 03 Машина | `gate_admission`, `starter_recipe`, `proc_nightly` (dream ×11, ordered), eval, assembler-blocks | flat / ordered (dream) |
 | 04 Мозг | `brain_core` | models (reactive/smart/light) · personas (7) |
 | 05 Тулы (78) | `tool_retrieve` | always-on·trajectory·graph·recall·support·connectors·biometric·trash·tunneling·structure·read·meta |
 | 06 Эффект | `eff_respond` | flat (send/await/create-update-delete/keyboard) |
-| 07 Vault (~65) | `store_vault` | core·graph·trajectory·memory·awareness·dream·secretary·connector·meta·RETIRED |
+| 07 Vault (68) | `store_vault` | core·graph·trajectory·memory·awareness·dream·secretary·connector·meta·RETIRED |
 | 08 admin (29) | `store_vault` → family `admin` | flat |
 | 09 Кроны (46) | `trig_cron` | by cadence |
 
