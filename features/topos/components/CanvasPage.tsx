@@ -15,7 +15,7 @@ import { TOPOS_DATA } from '../../../data';
 import { useDarkMode } from '../../../hooks/useDarkMode';
 import type { Task, IOItem } from '../../../types';
 
-const NODE_W = 210;
+const NODE_W = 280;   // wider: side gutters hold per-port data chips, centre holds content
 type XY = { x: number; y: number };
 type Pos = Record<string, XY>;
 type EdgePts = Record<string, XY[]>;
@@ -64,6 +64,8 @@ function kindOf(t: Task): { icon: React.ComponentType<{ size?: number }>; kind: 
 }
 const layerColor = (id: string) => toposService.getLayerById(id)?.color ?? '#666';
 const ioLabel = (i: IOItem) => (typeof i === 'string' ? i : i.label);
+// data on an edge = the primary output of its source; both ports (out + in) carry it.
+const ioOut = (t?: Task | null) => (t?.io_spec?.outputs?.primary ? ioLabel(t.io_spec.outputs.primary) : '');
 
 // approximate rendered height so ELK reserves the right vertical space per node.
 function nodeH(t: Task): number {
@@ -90,12 +92,18 @@ const elk = new ELK();
 const portS = (id: string) => `${id}__s`;   // source port (output) → EAST
 const portT = (id: string) => `${id}__t`;   // target port (input)  → WEST
 
-async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Pos; pts: EdgePts; handles: Handles }> {
+async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Pos; pts: EdgePts; handles: Handles; heights: Record<string, number> }> {
   // one explicit port per edge-endpoint, side fixed: outputs EAST, inputs WEST.
   const outPorts: Record<string, any[]> = {}, inPorts: Record<string, any[]> = {};
   edges.forEach(e => {
     (outPorts[e.source] ??= []).push({ id: portS(e.id), layoutOptions: { 'elk.port.side': 'EAST' } });
     (inPorts[e.target] ??= []).push({ id: portT(e.id), layoutOptions: { 'elk.port.side': 'WEST' } });
+  });
+  // give each node enough height for its busiest side, so ports + chips don't crowd.
+  const heights: Record<string, number> = {};
+  tasks.forEach(t => {
+    const busiest = Math.max(outPorts[t.id]?.length ?? 0, inPorts[t.id]?.length ?? 0);
+    heights[t.id] = Math.max(nodeH(t), busiest * 22 + 14);
   });
   const graph = {
     id: 'root',
@@ -116,7 +124,7 @@ async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Po
       'elk.spacing.portPort': '13',
     },
     children: tasks.map(t => ({
-      id: t.id, width: NODE_W, height: nodeH(t),
+      id: t.id, width: NODE_W, height: heights[t.id],
       layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_SIDE' },
       ports: [...(outPorts[t.id] ?? []), ...(inPorts[t.id] ?? [])],
     })),
@@ -138,7 +146,7 @@ async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Po
     if (!sec) return;
     pts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
   });
-  return { pos, pts, handles };
+  return { pos, pts, handles, heights };
 }
 
 // rounded orthogonal SVG path through ELK bend points.
@@ -167,7 +175,8 @@ function ElkEdge({ id, data, markerEnd, style }: EdgeProps) {
 }
 
 // ---- custom nodes ----
-type PortHandle = HandleSpec & { color: string };
+type PortHandle = HandleSpec & { color: string; label: string };
+const GUTTER = 66;   // node.padding side = gutter width for port chips
 // output = diamond ◇, input = triangle ▷ (points into the node); coloured by its edge, ringed to sit on the border.
 // paths are mass-balanced (≈ equal area) and drawn as SVG so the outline follows the shape.
 const PORT = 14;
@@ -183,19 +192,31 @@ function PortShape({ h }: { h: PortHandle }) {
     </Handle>
   );
 }
-type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[] };
+type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[]; minH: number };
 function BrickNode({ data }: NodeProps) {
-  const { task, color, opacity, selected, badges, families, handles } = data as unknown as BrickData;
+  const { task, color, opacity, selected, badges, families, handles, minH } = data as unknown as BrickData;
   const { icon: Icon, kind } = kindOf(task);
   return (
     <div className="rf-brick" title={task.elevator_pitch} style={{
-      width: NODE_W, borderRadius: 11, border: `1.5px solid ${color}`,
+      width: NODE_W, minHeight: minH, boxSizing: 'border-box', borderRadius: 11, border: `1.5px solid ${color}`,
       background: `linear-gradient(180deg, ${color}22, ${color}0f), var(--surface, #101826)`,
-      color: 'var(--text-main, #e6e9ee)', padding: '8px 11px 9px', opacity, transition: 'opacity .2s, box-shadow .12s, transform .12s',
+      color: 'var(--text-main, #e6e9ee)', padding: `8px ${GUTTER}px 9px`, opacity, transition: 'opacity .2s, box-shadow .12s, transform .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       {/* port shapes at ELK-computed positions: ◇ output on the right, ▷ input on the left. */}
       {handles.map((h) => (<PortShape key={h.id} h={h} />))}
+      {/* per-port data chip in the gutter, aligned to the port's y; input on the left, output on the right. */}
+      {handles.filter(h => h.label).map((h) => {
+        const isIn = h.kind === 'target';
+        return (
+          <div key={`${h.id}_c`} title={h.label} style={{
+            position: 'absolute', top: h.y, transform: 'translateY(-50%)', maxWidth: GUTTER - 12,
+            ...(isIn ? { left: 10, textAlign: 'left' as const } : { right: 10, textAlign: 'right' as const }),
+            fontFamily: 'monospace', fontSize: 8, lineHeight: 1.1, color: h.color, opacity: 0.92,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none',
+          }}>{h.label}</div>
+        );
+      })}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
         <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
         <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.9 }}>{kind}</span>
@@ -241,7 +262,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const [activeFlow, setActiveFlow] = useState<string | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [showStores, setShowStores] = useState(true);
-  const [layout, setLayout] = useState<{ pos: Pos; pts: EdgePts; handles: Handles } | null>(null);
+  const [layout, setLayout] = useState<{ pos: Pos; pts: EdgePts; handles: Handles; heights: Record<string, number> } | null>(null);
 
   const tasks = useMemo(() => toposService.getTasks(), []);
   const layers = useMemo(() => toposService.getLayers(), []);
@@ -249,7 +270,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const idSet = useMemo(() => new Set(tasks.map(t => t.id)), [tasks]);
   const raw = useMemo(() => rawEdges(tasks, idSet), [tasks, idSet]);
 
-  // each port takes the colour of its own edge (loop = amber).
+  // each port takes the colour of its own edge (loop = amber) and the data label of the edge's source output.
   const portColor = useMemo(() => {
     const m: Record<string, string> = {};
     raw.forEach(e => {
@@ -257,6 +278,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const c = isLoop ? '#e6a63c' : (EDGE_COLOR[e.rel.type] ?? '#8a8f98');
       m[portS(e.id)] = c; m[portT(e.id)] = c;
     });
+    return m;
+  }, [raw]);
+  const portLabel = useMemo(() => {
+    const m: Record<string, string> = {};
+    raw.forEach(e => { const l = ioOut(toposService.getTaskById(e.source)); m[portS(e.id)] = l; m[portT(e.id)] = l; });
     return m;
   }, [raw]);
 
@@ -270,6 +296,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const pos = layout?.pos ?? null;
   const pts = layout?.pts ?? {};
   const handles = layout?.handles ?? {};
+  const heights = layout?.heights ?? {};
 
   const flowIds = useMemo(() => {
     if (!activeFlow) return null;
@@ -301,14 +328,14 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const minX = Math.min(...members.map(t => pos[t.id].x)) - PAD;
       const minY = Math.min(...members.map(t => pos[t.id].y)) - PAD - TOP;
       const maxX = Math.max(...members.map(t => pos[t.id].x + NODE_W)) + PAD;
-      const maxY = Math.max(...members.map(t => pos[t.id].y + nodeH(t))) + PAD;
+      const maxY = Math.max(...members.map(t => pos[t.id].y + (heights[t.id] ?? nodeH(t)))) + PAD;
       return {
         id: `zone_${layer.id}`, type: 'zone', position: { x: minX, y: minY },
         data: { label: layer.name, role: layer.role, color: layer.color },
         style: { width: maxX - minX, height: maxY - minY }, draggable: false, selectable: false, zIndex: -1,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [layers, tasks, pos]);
+  }, [layers, tasks, pos, heights]);
 
   const brickNodes: Node[] = useMemo(() => {
     if (!pos) return [];
@@ -319,11 +346,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
-        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? layerColor(t.layer_id) })) },
+        data: { task: t, color: layerColor(t.layer_id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, minH: heights[t.id] ?? nodeH(t), handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? layerColor(t.layer_id), label: portLabel[h.id] ?? '' })) },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, pos, handles, portColor]);
+  }, [tasks, flowIds, connected, selected, pos, handles, heights, portColor, portLabel]);
 
   const nodes = useMemo(() => [...zoneNodes, ...brickNodes], [zoneNodes, brickNodes]);
 
