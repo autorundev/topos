@@ -72,5 +72,6 @@ features/atlas/components/ForDesignersPage.tsx
 features/atlas/components/ForProductPage.tsx
 features/atlas/components/ForEngineersPage.tsx
 features/atlas/components/ForResearchPage.tsx
-# Step-1 dev verification screenshots
+# Step-1 / Step-2b dev verification screenshots
 step1-*.png
+step2b-*.png
