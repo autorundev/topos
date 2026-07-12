@@ -15,7 +15,8 @@ import {
 import { toposService } from '../../../services/toposService';
 import { TOPOS_DATA } from '../../../data';
 import { useDarkMode } from '../../../hooks/useDarkMode';
-import type { Task, IOItem, NodeCategory, NodeNature } from '../../../types';
+import type { Task, IOItem, NodeCategory, NodeNature, TaxoKind, NodeStatus } from '../../../types';
+import { visibleTaxo, taxoRenderId, type TaxoRender, type ContainsEdge } from '../lib/visibleTaxo';
 
 const NODE_W = 232;   // I/O chips stack as rows inside the card (grows height, not width)
 type XY = { x: number; y: number };
@@ -126,12 +127,28 @@ const ITEM_W = 174, ITEM_H = 54, ITEM_GX = 16, ITEM_GY = 14, BAND_LABEL = 30, BA
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
 const ROW_H = 34;   // one input/output row — tall enough for a 2-line chip
-const famCountOf = (t: Task) => t.id === 'det_detectors' ? (t.common_variants ?? []).filter(v => v.includes('×')).length : 0;
+// family-badge count on the det_detectors header — taxonomy-derived (real family list), not a
+// parsed common_variants string. Only det_detectors shows this header strip (unchanged scope);
+// see toposService.getTaxonomy('det_detectors') for the source of truth.
+const famCountOf = (t: Task) => t.id === 'det_detectors' ? toposService.getTaxonomy(t.id).filter(n => n.kind === 'family').length : 0;
 // fixed header-block height (kind + title + families + badges) sitting above the I/O rows.
 function headerH(t: Task): number {
   const famRows = famCountOf(t) ? Math.ceil(famCountOf(t) / 2) : 0;
   const badges = (BADGES[t.id] ?? []).length ? 20 : 0;
   return 58 + famRows * 20 + badges;
+}
+
+// ═══════════════ detail-hierarchy (drill-down) node geometry + status palette ═══════════════
+const TAXO_W = 156;
+const TAXO_H: Record<TaxoKind, number> = { family: 40, instance: 34 };
+// matches internals.html's status dots (live/todo/dead/soak); soak renders hollow.
+const STATUS_COLOR: Record<NodeStatus, string> = { live: '#42c48a', todo: '#e7c66b', dead: '#39434f', soak: '#0a0d12' };
+const STATUS_LABEL: Record<NodeStatus, string> = { live: 'работает', todo: 'todo', dead: 'удалено', soak: 'owner-soak' };
+function StatusDot({ status, size = 7 }: { status: NodeStatus; size?: number }) {
+  if (status === 'soak') {
+    return <span style={{ width: size, height: size, borderRadius: '50%', display: 'inline-block', flex: '0 0 auto', background: STATUS_COLOR.soak, border: '1.4px solid #c9d4e0' }} />;
+  }
+  return <span style={{ width: size, height: size, borderRadius: '50%', display: 'inline-block', flex: '0 0 auto', background: STATUS_COLOR[status] }} />;
 }
 
 // ═══════════════ auto-layout + edge-routing (ELK) — no hand-tuned coords ═══════════════
@@ -185,24 +202,55 @@ function assignSlots(ports: { eid: string; py: number }[], rows: number, allYs: 
   return res;
 }
 
-async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Pos; pts: EdgePts; handles: Handles; heights: Record<string, number> }> {
+// Taxo (family/instance) nodes cluster in the SAME zone-partition as their root class (reusing
+// LAYER_ORDER by layer_id — the mechanism the class nodes already use), but carry FREE ports:
+// contains/seq edges attach to the node border, not to a specific fixed I/O port. When
+// `taxoNodes`/`taxoEdges` are empty (nothing expanded), spreading these into pass1/pass2 below is
+// a no-op, so the flow-only layout is byte-for-byte identical to the pre-W2 output.
+function taxoChildren(taxoNodes: TaxoRender[], tasks: Task[]) {
+  const layerOf: Record<string, string> = {};
+  tasks.forEach(t => { layerOf[t.id] = t.layer_id; });
+  return taxoNodes.map(n => ({
+    id: n.id, width: TAXO_W, height: TAXO_H[n.kind],
+    layoutOptions: {
+      'elk.partitioning.partition': String(LAYER_ORDER[layerOf[n.classId] ?? ''] ?? 1),
+      'elk.portConstraints': 'FREE',
+    },
+  }));
+}
+const taxoElkEdges = (taxoEdges: ContainsEdge[]) => taxoEdges.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] }));
+
+async function computeLayout(
+  tasks: Task[],
+  edges: RawEdge[],
+  taxoNodes: TaxoRender[] = [],
+  taxoEdges: ContainsEdge[] = [],
+): Promise<{ pos: Pos; pts: EdgePts; handles: Handles; heights: Record<string, number> }> {
   const inList: Record<string, string[]> = {}, outList: Record<string, string[]> = {};
   edges.forEach(e => { (outList[e.source] ??= []).push(e.id); (inList[e.target] ??= []).push(e.id); });
   const heights: Record<string, number> = {};
   tasks.forEach(t => { heights[t.id] = headerH(t) + Math.max(inList[t.id]?.length ?? 0, outList[t.id]?.length ?? 0) * ROW_H + 6; });
+  const taxoNodeSpecs = taxoChildren(taxoNodes, tasks);
+  const taxoEdgeSpecs = taxoElkEdges(taxoEdges);
 
   // PASS 1 — free port order (FIXED_SIDE): let ELK pick the crossing-minimal vertical order of each side.
   const pass1 = {
     id: 'root', layoutOptions: ELK_OPTS,
-    children: tasks.map(t => ({
-      id: t.id, width: NODE_W, height: heights[t.id],
-      layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_SIDE' },
-      ports: [
-        ...(inList[t.id] ?? []).map(eid => ({ id: portT(eid), layoutOptions: { 'elk.port.side': 'WEST' } })),
-        ...(outList[t.id] ?? []).map(eid => ({ id: portS(eid), layoutOptions: { 'elk.port.side': 'EAST' } })),
-      ],
-    })),
-    edges: edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
+    children: [
+      ...tasks.map(t => ({
+        id: t.id, width: NODE_W, height: heights[t.id],
+        layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_SIDE' },
+        ports: [
+          ...(inList[t.id] ?? []).map(eid => ({ id: portT(eid), layoutOptions: { 'elk.port.side': 'WEST' } })),
+          ...(outList[t.id] ?? []).map(eid => ({ id: portS(eid), layoutOptions: { 'elk.port.side': 'EAST' } })),
+        ],
+      })),
+      ...taxoNodeSpecs,
+    ],
+    edges: [
+      ...edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
+      ...taxoEdgeSpecs,
+    ],
   };
   const r1: any = await elk.layout(pass1 as any);
   const centreY: Record<string, number> = {}, pY1: Record<string, number> = {};
@@ -227,15 +275,23 @@ async function computeLayout(tasks: Task[], edges: RawEdge[]): Promise<{ pos: Po
     ];
   });
 
-  // PASS 2 — pin ports to the assigned row centres (FIXED_POS) and route.
+  // PASS 2 — pin ports to the assigned row centres (FIXED_POS) and route. Taxo nodes stay FREE
+  // (they declare no ports at all — contains/seq edges connect node→node, ELK auto-picks the
+  // border crossing point).
   const pass2 = {
     id: 'root', layoutOptions: ELK_OPTS,
-    children: tasks.map(t => ({
-      id: t.id, width: NODE_W, height: heights[t.id],
-      layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_POS' },
-      ports: portsMap[t.id],
-    })),
-    edges: edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
+    children: [
+      ...tasks.map(t => ({
+        id: t.id, width: NODE_W, height: heights[t.id],
+        layoutOptions: { 'elk.partitioning.partition': String(LAYER_ORDER[t.layer_id] ?? 1), 'elk.portConstraints': 'FIXED_POS' },
+        ports: portsMap[t.id],
+      })),
+      ...taxoNodeSpecs,
+    ],
+    edges: [
+      ...edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
+      ...taxoEdgeSpecs,
+    ],
   };
   const res: any = await elk.layout(pass2 as any);
   const pos: Pos = {};
@@ -280,6 +336,13 @@ function ElkEdge({ id, data, markerEnd, style }: EdgeProps) {
   if (!d?.points || d.points.length < 2) return null;
   return <BaseEdge id={id} path={orthoPath(d.points)} markerEnd={markerEnd} style={style} />;
 }
+// ---- membership edge: class→family / family→instance `contains`, and dream `seq` chaining ----
+// thin, neutral grey, no ports, no arrowhead, no label — deliberately recessive vs. the flow edges.
+function ContainsEdgeComp({ id, data, style }: EdgeProps) {
+  const d = data as unknown as ElkEdgeData;
+  if (!d?.points || d.points.length < 2) return null;
+  return <BaseEdge id={id} path={orthoPath(d.points, 6)} style={style} />;
+}
 
 // ---- custom nodes ----
 type PortHandle = HandleSpec & { color: string; label: string };
@@ -311,9 +374,24 @@ function IOChip({ h }: { h: PortHandle }) {
     </span>
   );
 }
-type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[]; minH: number };
+// Default (id-less) source+target handles, invisible. React Flow will NOT mount an edge unless
+// both endpoints expose a resolvable handle; `contains`/`seq` edges carry no handle id, so the
+// class BrickNode and the taxo family/instance nodes each need a default handle for those edges
+// to render. The DRAWN geometry still comes entirely from ELK's `data.points` (ContainsEdgeComp
+// ignores handle position), so these are purely mount anchors, hidden and non-interactive. Flow
+// edges are unaffected: they reference specific port-handle ids, never the default.
+const HIDDEN_HANDLE: React.CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent', pointerEvents: 'none' };
+function MembershipHandles() {
+  return (
+    <>
+      <Handle type="target" position={Position.Left} isConnectable={false} style={HIDDEN_HANDLE} />
+      <Handle type="source" position={Position.Right} isConnectable={false} style={HIDDEN_HANDLE} />
+    </>
+  );
+}
+type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[]; minH: number; hasTaxonomy: boolean; taxoExpanded: boolean; onToggleTaxo: (id: string) => void };
 function BrickNode({ data }: NodeProps) {
-  const { task, color, opacity, selected, badges, families, handles, minH } = data as unknown as BrickData;
+  const { task, color, opacity, selected, badges, families, handles, minH, hasTaxonomy, taxoExpanded, onToggleTaxo } = data as unknown as BrickData;
   const { icon: Icon } = kindOf(task);
   // place chips by their port's actual slot (ports may be spread, not top-anchored).
   const hH = headerH(task);
@@ -330,12 +408,24 @@ function BrickNode({ data }: NodeProps) {
     }}>
       {/* port shapes on the border: ◇ output right, ▷ input left — aligned to the I/O rows below */}
       {handles.map((h) => (<PortShape key={h.id} h={h} />))}
+      {/* default anchors so class→family `contains` edges (no handle id) can mount */}
+      <MembershipHandles />
       {/* header — fixed height so ELK ports stay aligned with the rows */}
       <div style={{ height: headerH(task), overflow: 'hidden', padding: '6px 12px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
           <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
           <span style={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 9, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catLabel(task.id)}</span>
           <span style={{ flex: '0 0 auto', fontFamily: 'monospace', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES[natureOf(task.id)].short}</span>
+          {hasTaxonomy && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleTaxo(task.id); }}
+              title={taxoExpanded ? 'свернуть состав' : 'развернуть состав'}
+              aria-label={taxoExpanded ? 'свернуть состав' : 'развернуть состав'}
+              style={{ flex: '0 0 auto', background: 'none', border: 'none', color, cursor: 'pointer', padding: 0, margin: 0, display: 'inline-flex', alignItems: 'center', fontSize: 11, lineHeight: 1 }}
+            >
+              {taxoExpanded ? '▾' : '▸'}
+            </button>
+          )}
         </div>
         <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15 }}>{task.name}</div>
         {families.length > 0 && (
@@ -367,6 +457,56 @@ function BrickNode({ data }: NodeProps) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+// ---- detail-hierarchy (drill-down) nodes: compact family/instance cards, attach via `contains` ----
+type FamilyNodeData = { name: string; childCount: number; nature: NodeNature; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number };
+function FamilyNode({ id, data }: NodeProps) {
+  const { name, childCount, nature, expanded, hasChildren, onToggle, selected, opacity } = data as unknown as FamilyNodeData;
+  const color = NATURES[nature].color;
+  return (
+    <div className="rf-brick" style={{
+      width: TAXO_W, height: TAXO_H.family, boxSizing: 'border-box', borderRadius: 8, border: `1.3px solid ${color}`,
+      background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
+      color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', cursor: 'pointer',
+      opacity, transition: 'opacity .2s',
+      boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
+    }}>
+      <MembershipHandles />
+      {hasChildren ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggle(id); }}
+          title={expanded ? 'свернуть' : 'развернуть'}
+          aria-label={expanded ? 'свернуть' : 'развернуть'}
+          style={{ flex: '0 0 auto', width: 12, background: 'none', border: 'none', color, cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1, display: 'inline-flex' }}
+        >
+          {expanded ? '▾' : '▸'}
+        </button>
+      ) : <span style={{ flex: '0 0 auto', width: 12 }} />}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
+      <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
+      {childCount > 0 && <span style={{ fontFamily: 'monospace', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
+    </div>
+  );
+}
+type InstanceNodeData = { name: string; nature: NodeNature; status: NodeStatus; selected: boolean; opacity: number };
+function InstanceNode({ data }: NodeProps) {
+  const { name, nature, status, selected, opacity } = data as unknown as InstanceNodeData;
+  const color = NATURES[nature].color;
+  const dead = status === 'dead';
+  return (
+    <div className="rf-brick" style={{
+      width: TAXO_W, height: TAXO_H.instance, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
+      background: `linear-gradient(180deg, ${color}18, ${color}09), var(--surface, #101826)`,
+      color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', cursor: 'pointer',
+      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .2s',   // dead-dim × focus-dim, stacked
+      boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
+    }}>
+      <MembershipHandles />
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
+      <span style={{ flex: 1, minWidth: 0, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
+      <StatusDot status={status} size={6} />
     </div>
   );
 }
@@ -412,8 +552,8 @@ function ItemNode({ data }: NodeProps) {
     </div>
   );
 }
-const nodeTypes = { brick: BrickNode, zone: ZoneNode, band: BandNode, item: ItemNode };
-const edgeTypes = { elk: ElkEdge };
+const nodeTypes = { brick: BrickNode, zone: ZoneNode, band: BandNode, item: ItemNode, family: FamilyNode, instance: InstanceNode };
+const edgeTypes = { elk: ElkEdge, contains: ContainsEdgeComp };
 
 export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string } = {}) {
   const { isDark, toggle } = useDarkMode();
@@ -422,6 +562,18 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const [selItem, setSelItem] = useState<{ kind: 'constraint' | 'touchpoint'; raw: any; related: string[] } | null>(null);
   const [showStores, setShowStores] = useState(true);
   const [layout, setLayout] = useState<{ pos: Pos; pts: EdgePts; handles: Handles; heights: Record<string, number> } | null>(null);
+  // detail-hierarchy drill-down: which class/family nodes are expanded on the canvas.
+  // Keys: raw class task id (e.g. 'det_detectors'), or taxoRenderId(classId, taxoId) for a family
+  // (see features/topos/lib/visibleTaxo.ts for why family ids need the classId prefix).
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [selTaxo, setSelTaxo] = useState<TaxoRender | null>(null);
+  const toggleTaxo = useCallback((id: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
 
   const tasks = useMemo(() => toposService.getTasks(), []);
   const layers = useMemo(() => toposService.getLayers(), []);
@@ -429,6 +581,18 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   const constraints = useMemo(() => toposService.getConstraints(), []);
   const idSet = useMemo(() => new Set(tasks.map(t => t.id)), [tasks]);
   const raw = useMemo(() => rawEdges(tasks, idSet), [tasks, idSet]);
+
+  // detail-hierarchy: derive the visible family/instance sub-graph from `expanded` (pure fn).
+  const taxoVisible = useMemo(() => visibleTaxo(expanded, tasks), [expanded, tasks]);
+  const taxoNodesVisible = taxoVisible.nodes;
+  const taxoContainsEdges = taxoVisible.contains;
+  const taxoSeqEdges = taxoVisible.seq;
+  // ELK treats contains + seq edges identically (node→node, no ports); only rendering (opacity)
+  // distinguishes them, so route them together but keep the source arrays for that distinction.
+  const taxoAllEdges = useMemo(
+    () => [...taxoContainsEdges, ...taxoSeqEdges],
+    [taxoContainsEdges, taxoSeqEdges]
+  );
 
   // each port takes the colour of its own edge (loop = amber) and the data label of the edge's source output.
   const portColor = useMemo(() => {
@@ -451,12 +615,13 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     return m;
   }, [raw]);
 
-  // run the layout+routing engine once — coords AND edge routes come from ELK.
+  // run the layout+routing engine — coords AND edge routes come from ELK. Re-runs whenever the
+  // visible taxo set changes (expand/collapse), reflowing the WHOLE map (flow + taxo together).
   useEffect(() => {
     let alive = true;
-    computeLayout(tasks, raw).then(l => { if (alive) setLayout(l); }).catch(err => console.error('ELK layout failed', err));
+    computeLayout(tasks, raw, taxoNodesVisible, taxoAllEdges).then(l => { if (alive) setLayout(l); }).catch(err => console.error('ELK layout failed', err));
     return () => { alive = false; };
-  }, [tasks, raw]);
+  }, [tasks, raw, taxoNodesVisible, taxoAllEdges]);
 
   const pos = layout?.pos ?? null;
   const pts = layout?.pts ?? {};
@@ -479,7 +644,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   }, [selected, tasks]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSelected(null); setSelItem(null); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSelected(null); setSelItem(null); setSelTaxo(null); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
@@ -502,22 +667,43 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     }).filter(Boolean) as Node[];
   }, [layers, tasks, pos, heights]);
 
+  // Focus/spotlight dimming for a class id — the SAME thresholds brickNodes applies below
+  // (flowIds/selItem/connected, 0.18/0.2/0.25). A taxo child's dimming keys off its ROOT CLASS,
+  // so an expanded class's children + their contains/seq edges dim in lockstep with the class.
+  // Returns 1 (full brightness) when no focus mode is active.
+  const classOpacity = useCallback((classId: string): number => {
+    const spot = selItem ? new Set(selItem.related) : null;
+    if (flowIds && !flowIds.has(classId)) return 0.18;
+    if (spot && !spot.has(classId)) return 0.2;
+    if (connected && !connected.has(classId)) return 0.25;
+    return 1;
+  }, [flowIds, connected, selItem]);
+
   const brickNodes: Node[] = useMemo(() => {
     if (!pos) return [];
     const spot = selItem ? new Set(selItem.related) : null;
     return tasks.map((t) => {
-      const families = t.id === 'det_detectors' ? (t.common_variants ?? []).filter(v => v.includes('×')) : [];
+      // det_detectors header strip — real taxonomy families (name + actual child count), not a
+      // parsed common_variants string (see famCountOf above for the matching row-height calc).
+      const families = t.id === 'det_detectors'
+        ? toposService.getTaxonomy(t.id).filter(n => n.kind === 'family').map(f => `${f.name} ×${f.children?.length ?? 0}`)
+        : [];
       let opacity = 1;
       if (flowIds && !flowIds.has(t.id)) opacity = 0.18;
       else if (spot && !spot.has(t.id)) opacity = 0.2;
       else if (connected && !connected.has(t.id)) opacity = 0.25;
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
-        data: { task: t, color: natureColor(t.id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families, minH: heights[t.id] ?? headerH(t) + ROW_H, handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? natureColor(t.id), label: portLabel[h.id] ?? '' })) },
+        data: {
+          task: t, color: natureColor(t.id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families,
+          minH: heights[t.id] ?? headerH(t) + ROW_H,
+          handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? natureColor(t.id), label: portLabel[h.id] ?? '' })),
+          hasTaxonomy: toposService.getTaxonomy(t.id).length > 0, taxoExpanded: expanded.has(t.id), onToggleTaxo: toggleTaxo,
+        },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, selItem, pos, handles, heights, portColor, portLabel]);
+  }, [tasks, flowIds, connected, selected, selItem, pos, handles, heights, portColor, portLabel, expanded, toggleTaxo]);
 
   // cross-cutting bands (Constraints / Touchpoints) laid out below the flow's bounding box.
   const bands = useMemo(() => {
@@ -552,7 +738,40 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     return { id: it.id, type: 'item', position: it.position, data: { ...it.data, raw: it.raw, dim, selected: !!isSel }, zIndex: isSel ? 3 : 1 } as Node;
   }), [bands, selItem, selected]);
 
-  const nodes = useMemo(() => [...zoneNodes, ...bands.zones, ...brickNodes, ...itemNodes], [zoneNodes, bands, brickNodes, itemNodes]);
+  // detail-hierarchy: family/instance cards for the currently visible taxo set. Skip a node until
+  // ELK has actually placed it (guards the one-tick window between a toggle and the async layout
+  // resolving — avoids a flash at (0,0)).
+  const taxoNodesRF: Node[] = useMemo(() => {
+    if (!pos) return [];
+    return taxoNodesVisible.filter(rt => pos[rt.id]).map(rt => {
+      const isSel = selTaxo?.id === rt.id;
+      const opacity = classOpacity(rt.classId);   // dim with the root class in focus mode
+      if (rt.kind === 'family') {
+        return {
+          id: rt.id, type: 'family', position: pos[rt.id],
+          data: { name: rt.name, childCount: rt.childCount, nature: rt.nature, expanded: expanded.has(rt.id), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity } as FamilyNodeData,
+          zIndex: isSel ? 3 : 2,
+        } as Node;
+      }
+      return {
+        id: rt.id, type: 'instance', position: pos[rt.id],
+        data: { name: rt.name, nature: rt.nature, status: rt.status, selected: isSel, opacity } as InstanceNodeData,
+        zIndex: isSel ? 3 : 2,
+      } as Node;
+    });
+  }, [taxoNodesVisible, pos, expanded, toggleTaxo, selTaxo, classOpacity]);
+
+  // render id → root class id, so a contains/seq edge can inherit its class's dim factor.
+  const classOfRender = useMemo(() => {
+    const m: Record<string, string> = {};
+    taxoNodesVisible.forEach(n => { m[n.id] = n.classId; });
+    return m;
+  }, [taxoNodesVisible]);
+
+  const nodes = useMemo(
+    () => [...zoneNodes, ...bands.zones, ...brickNodes, ...itemNodes, ...taxoNodesRF],
+    [zoneNodes, bands, brickNodes, itemNodes, taxoNodesRF]
+  );
 
   const edges: Edge[] = useMemo(() => {
     if (!pos) return [];
@@ -584,15 +803,47 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
     return list;
   }, [raw, pts, pos, flowIds, connected, selected, selItem, showStores, isDark]);
 
+  // `contains` / `seq` membership edges — thin, grey, no ports/arrowhead/label, rendered BELOW
+  // the flow edges (negative zIndex) so the flow stays visually dominant per the design doc.
+  // Focus-mode: base opacity (contains .5 / seq .7) is scaled by the edge's ROOT-CLASS dim factor
+  // (both endpoints share one class), so membership edges fade together with their class.
+  const taxoEdgesRF: Edge[] = useMemo(() => {
+    if (!pos) return [];
+    const mk = (e: ContainsEdge, isSeq: boolean): Edge | null => {
+      const points = pts[e.id];
+      if (!points || points.length < 2) return null;
+      const cid = classOfRender[e.target];               // target is always a taxo node
+      const dimFactor = cid ? classOpacity(cid) : 1;
+      const base = isSeq ? 0.7 : 0.5;
+      return {
+        id: e.id, source: e.source, target: e.target, type: 'contains',
+        data: { points } as ElkEdgeData,
+        style: { stroke: '#5a6675', strokeWidth: isSeq ? 1.4 : 1.2, opacity: base * dimFactor },
+        zIndex: -1,
+      } as Edge;
+    };
+    return [
+      ...taxoContainsEdges.map(e => mk(e, false)),
+      ...taxoSeqEdges.map(e => mk(e, true)),
+    ].filter(Boolean) as Edge[];
+  }, [taxoContainsEdges, taxoSeqEdges, pts, pos, classOfRender, classOpacity]);
+
+  const allEdges = useMemo(() => [...edges, ...taxoEdgesRF], [edges, taxoEdgesRF]);
+
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type === 'item') {
       const d = node.data as any;
-      setSelItem({ kind: d.kind, raw: d.raw, related: d.related }); setSelected(null);
+      setSelItem({ kind: d.kind, raw: d.raw, related: d.related }); setSelected(null); setSelTaxo(null);
       return;
     }
     if (node.type === 'zone' || node.type === 'band') return;
-    setSelected(toposService.getTaskById(node.id) ?? null); setSelItem(null);
-  }, []);
+    if (node.type === 'family' || node.type === 'instance') {
+      const rt = taxoNodesVisible.find(n => n.id === node.id) ?? null;
+      setSelTaxo(rt); setSelected(null); setSelItem(null);
+      return;
+    }
+    setSelected(toposService.getTaskById(node.id) ?? null); setSelItem(null); setSelTaxo(null);
+  }, [taxoNodesVisible]);
 
   if (!pos) {
     return (
@@ -605,8 +856,8 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   return (
     <div style={{ position: 'relative', width: '100%', height, background: isDark ? '#0a1018' : '#f4f6f8' }}>
       <ReactFlow
-        nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} colorMode={isDark ? 'dark' : 'light'}
-        onNodeClick={onNodeClick} onPaneClick={() => { setSelected(null); setSelItem(null); }}
+        nodes={nodes} edges={allEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} colorMode={isDark ? 'dark' : 'light'}
+        onNodeClick={onNodeClick} onPaneClick={() => { setSelected(null); setSelItem(null); setSelTaxo(null); }}
         fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.2} proOptions={{ hideAttribution: true }}
       >
         <Background gap={22} color={isDark ? '#16202e' : '#dfe4ea'} />
@@ -652,6 +903,16 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
                 <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible' }}><path d="M7 1.1 L12.9 7 L7 12.9 L1.1 7 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>выход</span>
                 <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible', marginLeft: 4 }}><path d="M2 1 L13.5 7 L2 13 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>вход</span>
               </div>
+              <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СОСТАВ (▸ развернуть)</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 14, height: 0, borderTop: '2px solid #5a6675', opacity: 0.5, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>contains</span><span style={{ opacity: 0.45 }}>принадлежность, без стрелки</span>
+              </div>
+              <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СТАТУС</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px' }}>
+                {(Object.keys(STATUS_LABEL) as NodeStatus[]).map(s => (
+                  <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 5 }}><StatusDot status={s} /><span style={{ opacity: 0.8 }}>{STATUS_LABEL[s]}</span></div>
+                ))}
+              </div>
             </div>
           </Panel>
         )}
@@ -659,6 +920,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
       {selected && <DetailDrawer task={selected} isDark={isDark} onClose={() => setSelected(null)} />}
       {!selected && selItem && <ItemDrawer item={selItem} isDark={isDark} onClose={() => setSelItem(null)} />}
+      {!selected && !selItem && selTaxo && <TaxoDrawer taxo={selTaxo} isDark={isDark} onClose={() => setSelTaxo(null)} />}
     </div>
   );
 }
@@ -696,9 +958,20 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
           </div>
         </Section>
       )}
-      {'common_variants' in task && (task as any).common_variants?.length > 0 && (
-        <Section title="ВАРИАНТЫ">{(task as any).common_variants.map((v: string) => <Chip key={v} color="#8a8f98">{v}</Chip>)}</Section>
-      )}
+      {(() => {
+        // prefer the real taxonomy (family ×count, or flat instance names) over the curated
+        // common_variants strings; common_variants stays as the fallback for classes with no
+        // TAXONOMY entry (see docs/superpowers/specs/2026-07-12-detail-hierarchy-design.md).
+        const taxo = toposService.getTaxonomy(task.id);
+        if (taxo.length > 0) {
+          const labels = taxo.map(n => n.kind === 'family' ? `${n.name} ×${n.children?.length ?? 0}` : n.name);
+          return <Section title="ВАРИАНТЫ">{labels.map(v => <Chip key={v} color="#8a8f98">{v}</Chip>)}</Section>;
+        }
+        if ('common_variants' in task && (task as any).common_variants?.length > 0) {
+          return <Section title="ВАРИАНТЫ">{(task as any).common_variants.map((v: string) => <Chip key={v} color="#8a8f98">{v}</Chip>)}</Section>;
+        }
+        return null;
+      })()}
       {task.relations?.length > 0 && (
         <Section title="СВЯЗИ">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -714,6 +987,33 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
           </div>
         </Section>
       )}
+    </div>
+  );
+}
+// Detail drawer for a family/instance taxo node — deliberately NOT the Task DetailDrawer (a
+// TaxoNode is a different shape entirely: no io_spec/relations/example_usage).
+function TaxoDrawer({ taxo, isDark, onClose }: { taxo: TaxoRender; isDark: boolean; onClose: () => void }) {
+  const color = NATURES[taxo.nature].color;
+  const cls = toposService.getTaskById(taxo.classId);
+  return (
+    <div style={{ position: 'absolute', top: 0, right: 0, width: 360, height: '100%', background: isDark ? 'rgba(9,15,23,.96)' : 'rgba(250,251,252,.97)', borderLeft: `1px solid var(--border,#2a3646)`, boxShadow: '-8px 0 24px rgba(0,0,0,.35)', overflowY: 'auto', zIndex: 20, padding: '16px 18px', color: 'var(--text-main,#e6e9ee)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: color, display: 'inline-block' }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{taxo.kind === 'family' ? 'СЕМЕЙСТВО' : 'ЭКЗЕМПЛЯР'}</span>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted,#9aa4b2)', cursor: 'pointer' }}><X size={16} /></button>
+      </div>
+      <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{taxo.name}</h2>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{NATURES[taxo.nature].label}</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#c2c9d4)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <StatusDot status={taxo.status} size={7} />{STATUS_LABEL[taxo.status]}
+        </span>
+        {cls && <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>класс: {cls.name}</span>}
+      </div>
+      {taxo.note && <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted,#c2c9d4)', marginBottom: 12 }}>{taxo.note}</p>}
+      {taxo.kind === 'family' && <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted,#9aa4b2)' }}>{taxo.childCount} {taxo.childCount === 1 ? 'элемент' : 'элементов'} в составе</p>}
     </div>
   );
 }
