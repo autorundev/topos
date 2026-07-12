@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   ReactFlow, Background, Controls, MiniMap, Panel, Handle,
-  BaseEdge, EdgeLabelRenderer,
+  BaseEdge,
   type Node, type Edge, type NodeProps, type EdgeProps, Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -158,51 +158,31 @@ function orthoPath(p: XY[], radius = 12): string {
   d += ` L ${last.x},${last.y}`;
   return d;
 }
-// arc-length midpoint of the polyline — where the label sits.
-function midOf(p: XY[]): XY {
-  if (p.length === 1) return p[0];
-  const seg: number[] = []; let total = 0;
-  for (let i = 1; i < p.length; i++) { const l = Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); seg.push(l); total += l; }
-  let acc = 0; const half = total / 2;
-  for (let i = 0; i < seg.length; i++) {
-    if (acc + seg[i] >= half) { const t = (half - acc) / (seg[i] || 1); return { x: p[i].x + (p[i + 1].x - p[i].x) * t, y: p[i].y + (p[i + 1].y - p[i].y) * t }; }
-    acc += seg[i];
-  }
-  return p[Math.floor(p.length / 2)];
-}
-
-// ---- custom edge: draws the exact ELK route ----
-type ElkEdgeData = { points: XY[]; label?: string; labelColor?: string; labelBg?: string; showLabel?: boolean };
+// ---- custom edge: draws the exact ELK route (no arrowhead, no label) ----
+type ElkEdgeData = { points: XY[] };
 function ElkEdge({ id, data, markerEnd, style }: EdgeProps) {
   const d = data as unknown as ElkEdgeData;
   if (!d?.points || d.points.length < 2) return null;
-  const path = orthoPath(d.points);
-  const lp = midOf(d.points);
-  return (
-    <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
-      {d.showLabel && d.label && (
-        <EdgeLabelRenderer>
-          <div style={{
-            position: 'absolute', transform: `translate(-50%,-50%) translate(${lp.x}px,${lp.y}px)`,
-            fontFamily: 'monospace', fontSize: 9, fontWeight: 400, color: d.labelColor,
-            background: d.labelBg, padding: '1px 4px', borderRadius: 3, pointerEvents: 'none', whiteSpace: 'nowrap',
-          }}>{d.label}</div>
-        </EdgeLabelRenderer>
-      )}
-    </>
-  );
+  return <BaseEdge id={id} path={orthoPath(d.points)} markerEnd={markerEnd} style={style} />;
 }
 
 // ---- custom nodes ----
-// output port = diamond ◇, input port = triangle ▷ (points into the node); coloured by its edge.
-function portStyle(kind: 'source' | 'target', color: string): React.CSSProperties {
-  const base: React.CSSProperties = { width: 11, height: 11, background: color, border: 'none', borderRadius: 0 };
-  return kind === 'source'
-    ? { ...base, clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }
-    : { ...base, clipPath: 'polygon(0% 0%, 100% 50%, 0% 100%)' };
-}
 type PortHandle = HandleSpec & { color: string };
+// output = diamond ◇, input = triangle ▷ (points into the node); coloured by its edge, ringed to sit on the border.
+// paths are mass-balanced (≈ equal area) and drawn as SVG so the outline follows the shape.
+const PORT = 14;
+function PortShape({ h }: { h: PortHandle }) {
+  const off: React.CSSProperties = (h.side === 'EAST' || h.side === 'WEST') ? { top: h.y } : { left: h.x };
+  const d = h.kind === 'source' ? 'M7 1.1 L12.9 7 L7 12.9 L1.1 7 Z' : 'M2 1 L13.5 7 L2 13 Z';
+  return (
+    <Handle id={h.id} type={h.kind} position={SIDE_POS[h.side]} isConnectable={false}
+      style={{ width: PORT, height: PORT, background: 'transparent', border: 'none', borderRadius: 0, ...off }}>
+      <svg width={PORT} height={PORT} viewBox="0 0 14 14" style={{ display: 'block', overflow: 'visible', pointerEvents: 'none' }}>
+        <path d={d} fill={h.color} strokeWidth={1.5} strokeLinejoin="round" style={{ stroke: 'var(--surface, #101826)' }} />
+      </svg>
+    </Handle>
+  );
+}
 type BrickData = { task: Task; color: string; opacity: number; selected: boolean; badges: string[]; families: string[]; handles: PortHandle[] };
 function BrickNode({ data }: NodeProps) {
   const { task, color, opacity, selected, badges, families, handles } = data as unknown as BrickData;
@@ -215,10 +195,7 @@ function BrickNode({ data }: NodeProps) {
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       {/* port shapes at ELK-computed positions: ◇ output on the right, ▷ input on the left. */}
-      {handles.map((h) => (
-        <Handle key={h.id} id={h.id} type={h.kind} position={SIDE_POS[h.side]} isConnectable={false}
-          style={{ ...portStyle(h.kind, h.color), ...((h.side === 'EAST' || h.side === 'WEST') ? { top: h.y } : { left: h.x }) }} />
-      ))}
+      {handles.map((h) => (<PortShape key={h.id} h={h} />))}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
         <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
         <span style={{ fontFamily: 'monospace', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.9 }}>{kind}</span>
@@ -367,13 +344,10 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const points = pts[e.id] ?? [centre(e.source), centre(e.target)];
       return {
         id: e.id, source: e.source, target: e.target, sourceHandle: portS(e.id), targetHandle: portT(e.id), type: 'elk',
-        data: {
-          points, label: isLoop ? '↺ эффект = write' : e.rel.type, showLabel: !dim,
-          labelColor: isLoop ? '#e6a63c' : color, labelBg: isDark ? 'rgba(11,20,32,.82)' : 'rgba(244,246,248,.85)',
-        } as ElkEdgeData,
+        data: { points } as ElkEdgeData,
         style: {
           stroke,
-          strokeWidth: (emph && (flowIds || focusId)) ? 2.4 : (isLoop ? 2.2 : (e.rel.strength === 'strong' ? 2 : 1.3)),
+          strokeWidth: (emph && (flowIds || focusId)) ? 2.6 : 1.6,   // uniform; thicker only to spotlight a path
           strokeDasharray: isRead ? '1 6' : undefined, opacity: dim ? 0.06 : 0.9,
         },
         animated: isLoop || ((flowIds || focusId) ? (emph && wakesFlow) : false), zIndex: dim ? 0 : 1,
@@ -422,8 +396,19 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
               <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>СЛОИ</div>
               {layers.map(l => (<div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: l.color, display: 'inline-block' }} />{l.name}</div>))}
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СВЯЗИ</div>
-              {EDGE_LEGEND.map(([type, ru]) => (<div key={type} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, height: 2, background: EDGE_COLOR[type.split(' ')[0]] ?? '#8a8f98', display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{type}</span><span style={{ opacity: 0.45 }}>{ru}</span></div>))}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}><span style={{ width: 14, height: 0, borderTop: '2px dashed #e6a63c', display: 'inline-block' }} /><span style={{ opacity: 0.85, color: '#e6a63c' }}>↺ петля</span></div>
+              {EDGE_LEGEND.map(([type, ru]) => {
+                const c = EDGE_COLOR[type.split(' ')[0]] ?? '#8a8f98';
+                const dotted = type === 'reads_from';
+                return (<div key={type} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, height: 0, borderTop: `2px ${dotted ? 'dotted' : 'solid'} ${c}`, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{type}</span><span style={{ opacity: 0.45 }}>{ru}</span></div>);
+              })}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}><span style={{ width: 14, height: 0, borderTop: '2px solid #e6a63c', display: 'inline-block' }} /><span style={{ opacity: 0.85, color: '#e6a63c' }}>↺ петля (эффект = write)</span></div>
+              <div style={{ opacity: 0.5, marginTop: 5 }}>сплошная = запись / поток</div>
+              <div style={{ opacity: 0.5 }}>пунктир = чтение (read-only)</div>
+              <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>ПОРТЫ</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible' }}><path d="M7 1.1 L12.9 7 L7 12.9 L1.1 7 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>выход</span>
+                <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible', marginLeft: 4 }}><path d="M2 1 L13.5 7 L2 13 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>вход</span>
+              </div>
             </div>
           </Panel>
         )}
