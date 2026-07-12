@@ -13,9 +13,11 @@ import {
   Example,
   NodeType,
   ToposData,
-  TaxoNode
+  TaxoNode,
+  TaxoIO
 } from '../types';
 import { TAXONOMY } from '../data/taxonomy';
+import { TAXO_IO } from '../data/taxonomy_io';
 
 export type RelationshipType = 'upstream' | 'downstream' | 'lateral' | 'conflict';
 
@@ -139,6 +141,17 @@ class ToposService {
   /** Returns the family/instance tree for a class id, or [] when no taxonomy entry exists. */
   getTaxonomy(classId: string): TaxoNode[] {
     return TAXONOMY[classId] ?? [];
+  }
+
+  /**
+   * Real per-child I/O ports (Step 2a) for a taxonomy node id — populated
+   * for tool_retrieve + det_detectors children only (extracted from
+   * ~/vectoros via scripts/extract_taxo_io.py into data/taxonomy_io.ts).
+   * Returns undefined when the node has no real I/O source (stores/crons/
+   * connectors/admin, or a tool/detector not present in the extraction).
+   */
+  getTaxoIO(taxoId: string): TaxoIO | undefined {
+    return TAXO_IO[taxoId];
   }
 
   /** Depth-first flatten of a taxonomy tree, including every descendant (families + instances). */
