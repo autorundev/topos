@@ -73,9 +73,10 @@ export interface TaxoNode {
 export const TAXONOMY: Record<string, TaxoNode[]> = { … };
 ```
 
-`common_variants: string[]` on the flow tasks is superseded by `TAXONOMY` and removed from the
-class nodes that gain a taxonomy (kept where a class has no taxonomy, or migrated wholesale —
-decided in the plan). The class node's own `nature`/`category` stay as they are.
+`common_variants: string[]` on the flow tasks is **left untouched**; it becomes a fallback.
+Rendering reads `TAXONOMY[classId]` when a taxonomy entry exists, else falls back to
+`common_variants` (drawer-only, no expansion). No data-file churn for the migration itself.
+The class node's own `nature`/`category` stay as they are.
 
 ### Source of truth & derivation
 
@@ -137,8 +138,7 @@ Expansion **attaches** children to the class; it does not replace it.
 
 - `types.ts`: add `TaxoNode` / `TaxoKind` / `NodeStatus`; `common_variants` handling.
 - `data/taxonomy.ts`: new.
-- `data/{system,ai,human}_tasks.ts`: `common_variants` removed/migrated for classes with a
-  taxonomy.
+- `data/{system,ai,human}_tasks.ts`: untouched (`common_variants` kept as fallback).
 - `CanvasPage.tsx`: `expanded` state; visible-set derivation; `contains` edge type + `ElkEdge`
   handling for arrowless/portless membership edges; family/instance node components; chevron
   affordance; ELK re-layout on toggle; sequence edges for dream.
