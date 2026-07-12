@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
-  ReactFlow, Background, Controls, MiniMap, Panel, Handle,
+  ReactFlow, Background, Panel, Handle,
   BaseEdge,
   type Node, type Edge, type NodeProps, type EdgeProps, Position,
 } from '@xyflow/react';
@@ -472,8 +472,6 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.2} proOptions={{ hideAttribution: true }}
       >
         <Background gap={22} color={isDark ? '#16202e' : '#dfe4ea'} />
-        <Controls />
-        <MiniMap pannable zoomable nodeColor={(n) => n.type === 'zone' ? 'transparent' : layerColor(toposService.getTaskById(n.id)?.layer_id ?? '')} maskColor={isDark ? 'rgba(10,16,24,0.7)' : 'rgba(230,235,240,0.7)'} />
 
         <Panel position="top-left">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 700 }}>
