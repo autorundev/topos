@@ -33,13 +33,19 @@ metaphor (ray-optics / circuit). Dark "night blueprint" (chosen over light "draf
 
 ### 1. Typography — the identity
 
-- **IBM Plex Mono** replaces the OS `monospace` for every technical label, id, port, and part-number.
-  Distinctive, legible at 8px, genuine character. Loaded via the existing Google-Fonts `<link>`.
-- **Instrument Serif** stays as the single expressive display face — the masthead title and cluster
-  names — an editorial counter-tension against the technical mono. (Already loaded.)
-- **Inter** is dropped from the canvas (may remain for any non-canvas chrome).
-- Size-specific tracking (apple-design §15): tight negative tracking on the serif display; near-0 on
-  mono body; small positive tracking only on the tiniest uppercase micro-labels.
+Grounded in the brand identity (`.agents/brand-context.md`, owner-approved 2026-07-13): a mono-forward
+"precision instrument", achromatic chrome, color reserved for meaning.
+
+- **Geist Mono** (Vercel, OFL — free, on Google Fonts) is the identity face for **everything**: technical
+  labels, ids, ports, part-numbers, AND the masthead title + cluster names. Mono end-to-end reads as
+  "a machine's-eye view, drawn by the engine, not a studio." Distinctive, legible at 8px.
+- **Geist Sans** is the secondary face, used ONLY where real prose runs longer than a line (tooltips,
+  the detail-drawer body) so a monospace stream doesn't fatigue.
+- **No serif anywhere.** Instrument Serif is removed — it reads editorial/literary and fights the
+  precision-instrument identity (owner call 2026-07-13). **Inter** and the OS `monospace` are also
+  dropped from the canvas.
+- Size-specific tracking (apple-design §15): tight negative tracking (≈ −0.02em) on the large masthead;
+  near-0 on mono body; small positive tracking only on the tiniest uppercase micro-labels.
 
 ### 2. Substrate — the drawing
 
@@ -141,7 +147,7 @@ Validated categorical palettes (nature = node identity, cluster = zone identity)
 - `features/topos/components/CanvasPage.tsx` — node components (Brick/Container/Family/Instance/Item),
   port rendering, `computeLayout` sizing, ReactFlow `Background`, a new position-tween layer, chevron.
 - `index.css` — ease/color tokens, dead-CSS removal, hover gating, reduced-motion, substrate underlay.
-- `index.html` — add IBM Plex Mono to the font `<link>`.
+- `index.html` — swap the font `<link>` to **Geist Mono + Geist Sans**; drop Inter + Instrument Serif.
 - Possibly a new small module for the derived+validated palette (single source of truth for nature/
   cluster hues, light + dark steps).
 - **No** data-model change, **no** backend, **no** change to `data/taxonomy*.ts` values.
@@ -150,12 +156,12 @@ Validated categorical palettes (nature = node identity, cluster = zone identity)
 
 - Not a functional or data change. Not the Ernest map (`/p/topos/ernest/`, not started).
 - Not the light "drafting-paper" variant (dark chosen). Not re-architecting ELK or the drill-down logic.
-- Not a font beyond IBM Plex Mono + Instrument Serif (Martian/Departure Mono considered and declined —
-  worse at 8px).
+- Not a font beyond Geist Mono + Geist Sans (Instrument Serif dropped as off-brand; IBM Plex / Martian /
+  Departure Mono considered and declined).
 
 ## Waves (high-level — detailed steps go in the plan)
 
-1. **Foundation** — IBM Plex Mono + ease/color tokens + **derived & validated dark/light palette module**
+1. **Foundation** — Geist Mono + Geist Sans + ease/color tokens + **derived & validated dark/light palette module**
    + blueprint substrate (grid, vignette, registration ticks, title block) + delete dead CSS.
 2. **Cards & terminals** — instrument-panel card craft + shape-coded port terminals + clean 2-line label
    pills (62px fix) + port-color-follows-entity semantics fix.
