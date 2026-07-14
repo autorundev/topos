@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toposService } from '../../../services/toposService';
 import { TOPOS_DATA } from '../../../data';
+import { natureColorFor, clusterColorFor, type ClusterSlug } from '../../../data/palette';
 import { useDarkMode } from '../../../hooks/useDarkMode';
 import type { Task, IOItem, NodeCategory, NodeNature, NodeStatus, TaxoIO } from '../../../types';
 import { visibleTaxo, type TaxoRender } from '../lib/visibleTaxo';
@@ -103,13 +104,13 @@ const catLabel = (id: string) => CATEGORIES[catOf(id)].label;
 // PRIMARY axis — nature of the operation (Atlas: probabilistic / deterministic / human).
 // The model runs in a few places, everything else is code — VectorOS doctrine made visible.
 type Nature = NodeNature;
-const NATURES: Record<Nature, { label: string; short: string; color: string }> = {
-  model: { label: 'Вероятностное · модель',  short: 'модель',  color: '#b45fd6' },
-  code:  { label: 'Детерминированное · код', short: 'код',     color: '#4a90c2' },
-  human: { label: 'Человек',                 short: 'человек', color: '#e0894a' },
+const NATURES_META: Record<Nature, { label: string; short: string }> = {
+  model: { label: 'Вероятностное · модель',  short: 'модель' },
+  code:  { label: 'Детерминированное · код', short: 'код' },
+  human: { label: 'Человек',                 short: 'человек' },
 };
 const natureOf = (id: string): Nature => (toposService.getTaskById(id)?.nature ?? 'code') as Nature;
-const natureColor = (id: string) => NATURES[natureOf(id)].color;
+const natureColor = (id: string, isDark: boolean) => natureColorFor(natureOf(id), isDark);
 
 // ═══════ cross-cutting bands (Atlas): Constraints (invariants) + Touchpoints (surfaces).
 const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -472,7 +473,7 @@ function BrickNode({ data }: NodeProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
           <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
           <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catLabel(task.id)}</span>
-          <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES[natureOf(task.id)].short}</span>
+          <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES_META[natureOf(task.id)].short}</span>
         </div>
         {/* no right reserve for the chevron (the 16px visual sits a row above the title) — restores
             the pre-Step-1 full-width title. nowrap+ellipsis guards against ever wrapping to a 2nd
@@ -511,10 +512,9 @@ function BrickNode({ data }: NodeProps) {
   );
 }
 // ---- detail-hierarchy (drill-down) nodes: compact family/instance cards, attach via `contains` ----
-type FamilyNodeData = { name: string; childCount: number; nature: NodeNature; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number };
+type FamilyNodeData = { name: string; childCount: number; color: string; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number };
 function FamilyNode({ id, data }: NodeProps) {
-  const { name, childCount, nature, expanded, hasChildren, onToggle, selected, opacity } = data as unknown as FamilyNodeData;
-  const color = NATURES[nature].color;
+  const { name, childCount, color, expanded, hasChildren, onToggle, selected, opacity } = data as unknown as FamilyNodeData;
   return (
     <div className="rf-brick" style={{
       position: 'relative', width: TAXO_W, height: TAXO_H.family, boxSizing: 'border-box', borderRadius: 8, border: `1.3px solid ${color}`,
@@ -538,10 +538,9 @@ function FamilyNode({ id, data }: NodeProps) {
     </div>
   );
 }
-type InstanceNodeData = { name: string; nature: NodeNature; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO };
+type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO };
 function InstanceNode({ data }: NodeProps) {
-  const { name, nature, status, selected, opacity, seq, io } = data as unknown as InstanceNodeData;
-  const color = NATURES[nature].color;
+  const { name, color, status, selected, opacity, seq, io } = data as unknown as InstanceNodeData;
   const dead = status === 'dead';
   // Step 2b: a leaf with TAXO_IO (tools + detectors) shows its OWN ports as chip rows below the
   // name — input left / output right, one row per max(inputs, outputs) — replacing reliance on
@@ -626,7 +625,7 @@ function ContainerNode({ id, data }: NodeProps) {
         {Icon && <span style={{ display: 'inline-flex', color, flex: '0 0 auto' }}><Icon size={13} /></span>}
         <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: variant === 'class' ? 12.5 : 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</span>
         {variant === 'family' && !!childCount && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
-        <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES[nature].short}</span>
+        <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES_META[nature].short}</span>
         <TouchChevron color={color} expanded onToggle={() => onToggle(id)} />
       </div>
       {/* L/R aggregate-port gutters — class root only; nested family containers carry no ports */}
@@ -803,11 +802,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const maxY = Math.max(...members.map(t => pos[t.id].y + (heights[t.id] ?? headerH(t) + ROW_H))) + PAD;
       return {
         id: `zone_${layer.id}`, type: 'zone', position: { x: minX, y: minY },
-        data: { label: layer.name, role: layer.role, color: layer.color },
+        data: { label: layer.name, role: layer.role, color: clusterColorFor(layer.slug as ClusterSlug, isDark) },
         style: { width: maxX - minX, height: maxY - minY }, draggable: false, selectable: false, zIndex: -1,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [layers, tasks, pos, heights, widths]);
+  }, [layers, tasks, pos, heights, widths, isDark]);
 
   // Focus/spotlight dimming for a class id — the SAME thresholds brickNodes applies below
   // (flowIds/selItem/connected, 0.18/0.2/0.25). A taxo child's dimming keys off its ROOT CLASS,
@@ -839,9 +838,9 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
         data: {
-          task: t, color: natureColor(t.id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families,
+          task: t, color: natureColor(t.id, isDark), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families,
           minH: heights[t.id] ?? headerH(t) + ROW_H,
-          handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? natureColor(t.id), label: portLabel[h.id] ?? '' })),
+          handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? natureColor(t.id, isDark), label: portLabel[h.id] ?? '' })),
           hasTaxonomy: toposService.getTaxonomy(t.id).length > 0, taxoExpanded: expanded.has(t.id), onToggleTaxo: toggleTaxo,
         },
         zIndex: selected?.id === t.id ? 3 : 1,
@@ -872,7 +871,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       if (isClassRoot) {
         const t = toposService.getTaskById(f.renderId);
         if (!t) return null;
-        const color = natureColor(t.id);
+        const color = natureColor(t.id, isDark);
         return {
           id: f.renderId, type: 'container', ...base,
           data: {
@@ -889,7 +888,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       return {
         id: f.renderId, type: 'container', ...base,
         data: {
-          variant: 'family', label: rt?.name ?? f.renderId, nature, color: NATURES[nature].color, opacity,
+          variant: 'family', label: rt?.name ?? f.renderId, nature, color: natureColorFor(nature, isDark), opacity,
           selected: selTaxo?.id === f.renderId, onToggle: toggleTaxo,
           headerH: f.header ?? CONTAINER_HEADER_H, gutterL: 0, gutterR: 0, w: f.w, h: f.h,
           childCount: rt?.childCount ?? 0,
@@ -907,20 +906,21 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const classId = f.renderId.split('::')[0];
       const opacity = classOpacity(classId);
       const isSel = selTaxo?.id === f.renderId;
+      const color = natureColorFor(rt.nature, isDark);
       if (f.kind === 'family') {
         return {
           id: f.renderId, type: 'family', position: { x: f.x, y: f.y },
-          data: { name: rt.name, childCount: rt.childCount, nature: rt.nature, expanded: expanded.has(f.renderId), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity } as FamilyNodeData,
+          data: { name: rt.name, childCount: rt.childCount, color, expanded: expanded.has(f.renderId), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity } as FamilyNodeData,
           zIndex: 2,
         } as Node;
       }
       return {
         id: f.renderId, type: 'instance', position: { x: f.x, y: f.y },
-        data: { name: rt.name, nature: rt.nature, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId) } as InstanceNodeData,
+        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId) } as InstanceNodeData,
         zIndex: 2,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [containerFlat, taxoById, selTaxo, classOpacity, expanded, toggleTaxo]);
+  }, [containerFlat, taxoById, selTaxo, classOpacity, expanded, toggleTaxo, isDark]);
 
   // cross-cutting bands (Constraints / Touchpoints) laid out below the flow's bounding box.
   const bands = useMemo(() => {
@@ -1055,9 +1055,9 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
           <Panel position="top-right">
             <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)', maxHeight: 'calc(100vh - 90px)', overflowY: 'auto' }}>
               <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>ПРИРОДА · цвет</div>
-              {(Object.keys(NATURES) as Nature[]).map(k => {
-                const n = NATURES[k];
-                return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: n.color, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{n.label}</span></div>);
+              {(Object.keys(NATURES_META) as Nature[]).map(k => {
+                const n = NATURES_META[k];
+                return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: natureColorFor(k, isDark), display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{n.label}</span></div>);
               })}
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>ФУНКЦИЯ · иконка</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px' }}>
@@ -1105,9 +1105,9 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
 function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; onClose: () => void }) {
   const { icon: Icon } = kindOf(task);
-  const color = natureColor(task.id);
+  const color = natureColor(task.id, isDark);
   const cat = CATEGORIES[catOf(task.id)];
-  const nat = NATURES[natureOf(task.id)];
+  const nat = NATURES_META[natureOf(task.id)];
   const layer = toposService.getLayerById(task.layer_id);
   const io = task.io_spec;
   return (
@@ -1171,7 +1171,7 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
 // Detail drawer for a family/instance taxo node — deliberately NOT the Task DetailDrawer (a
 // TaxoNode is a different shape entirely: no io_spec/relations/example_usage).
 function TaxoDrawer({ taxo, isDark, onClose }: { taxo: TaxoRender; isDark: boolean; onClose: () => void }) {
-  const color = NATURES[taxo.nature].color;
+  const color = natureColorFor(taxo.nature, isDark);
   const cls = toposService.getTaskById(taxo.classId);
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, width: 360, height: '100%', background: isDark ? 'rgba(9,15,23,.96)' : 'rgba(250,251,252,.97)', borderLeft: `1px solid var(--border,#2a3646)`, boxShadow: '-8px 0 24px rgba(0,0,0,.35)', overflowY: 'auto', zIndex: 20, padding: '16px 18px', color: 'var(--text-main,#e6e9ee)' }}>
@@ -1184,7 +1184,7 @@ function TaxoDrawer({ taxo, isDark, onClose }: { taxo: TaxoRender; isDark: boole
       </div>
       <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{taxo.name}</h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{NATURES[taxo.nature].label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{NATURES_META[taxo.nature].label}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#c2c9d4)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <StatusDot status={taxo.status} size={7} />{STATUS_LABEL[taxo.status]}
         </span>
