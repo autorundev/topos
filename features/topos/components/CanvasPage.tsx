@@ -24,7 +24,7 @@ import {
   IO_ROW_H, ioRowCount, ioRowsExtraHeight,
   type ContainerLayoutResult, type FlatContainerCell,
 } from '../lib/containerLayout';
-import { roundUp24, snapPositions } from '../lib/gridSnap';
+import { roundUp24, snapTo24, snapPositions } from '../lib/gridSnap';
 
 const NODE_W = 240;   // I/O chips stack as rows inside the card (grows height, not width) — 24px-grid-aligned
 type XY = { x: number; y: number };
@@ -950,7 +950,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       });
     });
     const h = BAND_LABEL + rows * (ITEM_H + ITEM_GY) - ITEM_GY + BAND_PAD;
-    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 24, y: maxY + BAND_GAP - 8 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: roundUp24(bandW + 48), height: roundUp24(h + 16) }, draggable: false, selectable: false, zIndex: -1 } as Node);
+    zones.push({ id: 'band_constraint', type: 'band', position: { x: snapTo24(minX - 24), y: snapTo24(maxY + BAND_GAP - 8) }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: roundUp24(bandW + 48), height: roundUp24(h + 16) }, draggable: false, selectable: false, zIndex: -1 } as Node);
     return { zones, items };
   }, [pos, heights, widths, tasks, constraints]);
 
