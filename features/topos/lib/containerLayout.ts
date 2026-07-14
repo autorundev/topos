@@ -153,25 +153,30 @@ export function containerLayout(rootId: string, expanded: Set<string>, _tasks: T
     return { renderId, kind: child.kind, x: 0, y: 0, w: TAXO_W, h, seq: child.seq };
   });
 
+  // Masonry: greedy shortest-column placement. A tall cell (e.g. a 10-param tool card) no longer
+  // inflates every cell sharing its row-major "row" — it only affects its OWN column's running
+  // height. Column ASSIGNMENT stays declaration/seq order (cells.forEach walks `cells` in that
+  // order), so a container that's expanded twice in a row lays out identically (deterministic).
   const cols = gridCols(cells.length);
+  const colHeights: number[] = new Array(cols).fill(0);
   const colWidths: number[] = new Array(cols).fill(0);
-  const rowHeights: number[] = [];
+  const colOf: number[] = [];
   cells.forEach((cell, i) => {
-    const col = i % cols, row = Math.floor(i / cols);
+    let col = 0;
+    for (let c = 1; c < cols; c++) if (colHeights[c] < colHeights[col]) col = c;
+    colOf[i] = col;
+    cell.y = colHeights[col];
+    colHeights[col] += cell.h + CELL_GAP;
     colWidths[col] = Math.max(colWidths[col], cell.w);
-    rowHeights[row] = Math.max(rowHeights[row] ?? 0, cell.h);
   });
   const colX: number[] = [0];
   for (let c = 1; c < cols; c++) colX[c] = colX[c - 1] + colWidths[c - 1] + CELL_GAP;
-  const rowY: number[] = [0];
-  for (let r = 1; r < rowHeights.length; r++) rowY[r] = rowY[r - 1] + rowHeights[r - 1] + CELL_GAP;
-  cells.forEach((cell, i) => {
-    const col = i % cols, row = Math.floor(i / cols);
-    cell.x = colX[col]; cell.y = rowY[row];
-  });
+  cells.forEach((cell, i) => { cell.x = colX[colOf[i]]; });
 
   const bodyW = cells.length === 0 ? TAXO_W : colWidths.reduce((a, b) => a + b, 0) + CELL_GAP * (cols - 1);
-  const bodyH = cells.length === 0 ? TAXO_H.instance : rowHeights.reduce((a, b) => a + b, 0) + CELL_GAP * (rowHeights.length - 1);
+  const bodyH = cells.length === 0
+    ? TAXO_H.instance
+    : Math.max(...colHeights.map((h, c) => cells.some((_, i) => colOf[i] === c) ? h - CELL_GAP : 0));
 
   const header = CONTAINER_HEADER_H;
   const gutterL = isTopLevel ? CONTAINER_GUTTER_W : 0;
