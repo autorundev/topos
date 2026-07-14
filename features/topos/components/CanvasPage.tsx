@@ -318,7 +318,9 @@ async function computeLayout(
   return { pos, pts, handles, heights, widths, containerLayouts };
 }
 
-// rounded orthogonal SVG path through ELK bend points.
+// 45° chamfer instead of a rounded corner (circuit-trace look, Blueprint amendment 2026-07-14):
+// c1/c2 are equidistant (`r`) from the bend along each axis-aligned leg, so the straight line
+// between them is geometrically exactly 45°.
 function orthoPath(p: XY[], radius = 12): string {
   if (p.length < 2) return '';
   const dist = (a: XY, b: XY) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
@@ -329,7 +331,7 @@ function orthoPath(p: XY[], radius = 12): string {
     const r = Math.min(radius, d1 / 2, d2 / 2);
     const c1 = { x: cur.x + (prev.x - cur.x) / d1 * r, y: cur.y + (prev.y - cur.y) / d1 * r };
     const c2 = { x: cur.x + (next.x - cur.x) / d2 * r, y: cur.y + (next.y - cur.y) / d2 * r };
-    d += ` L ${c1.x},${c1.y} Q ${cur.x},${cur.y} ${c2.x},${c2.y}`;
+    d += ` L ${c1.x},${c1.y} L ${c2.x},${c2.y}`;
   }
   const last = p[p.length - 1];
   d += ` L ${last.x},${last.y}`;
