@@ -161,3 +161,33 @@ button:disabled {
     filter: blur(2px);
   }
 }
+
+/* Reduced motion: keep opacity/color (they aid comprehension), drop movement/scale/blur. Reflow
+   becomes an instant-ish opacity settle; entrances become opacity-only cross-fade (no scale/blur/
+   stagger). transition-delay:0ms !important overrides the per-node inline transitionDelay. */
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node:not(.dragging) {
+    transition: opacity 150ms ease;
+  }
+  .topos-enter {
+    transition: opacity 150ms ease;
+    transition-delay: 0ms !important;
+
+    @starting-style {
+      opacity: 0;
+      transform: none;
+      filter: none;
+    }
+  }
+  .topos-chevron-glyph,
+  .topos-chevron-glyph:active {
+    transition: none;
+    transform: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .rf-brick:hover {
+      transform: none;
+      box-shadow: none;
+    }
+  }
+}
