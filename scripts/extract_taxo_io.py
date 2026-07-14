@@ -117,7 +117,12 @@ def _derive_output_label(description: str) -> str | None:
     if not label:
         return None
     if len(label) > 100:
-        label = label[:97].rstrip() + "..."
+        # cut at the last word boundary at or before 97 chars, not mid-word
+        cut = label[:97]
+        last_space = cut.rfind(" ")
+        if last_space > 60:   # only back off if it doesn't eat more than a third of the budget
+            cut = cut[:last_space]
+        label = cut.rstrip().rstrip(",;") + "..."
     return label
 
 

@@ -125,7 +125,7 @@ export const TAXO_IO: Record<string, TaxoIO> = {
   tool_list_items: { inputs: [{ name: "type" }, { name: "status" }, { name: "focus" }, { name: "query" }, { name: "limit" }] },
   tool_list_observations: { outputs: ["list of unresolved observations with type, content, and creation date"] },
   tool_list_silence_declarations: {},
-  tool_list_spheres: { outputs: ["each sphere with id, name, emoji, kind ('standard' base sphere by default; the 9th 'sphere_open_f..."] },
+  tool_list_spheres: { outputs: ["each sphere with id, name, emoji, kind ('standard' base sphere by default; the 9th..."] },
   tool_list_trash: { inputs: [{ name: "kind" }, { name: "since" }, { name: "query" }, { name: "limit" }], outputs: ["rows {trash_id, kind, label, deleted_at, deleted_via}, newest first"] },
   tool_mark_unproductive: { inputs: [{ name: "reason", required: true }, { name: "note" }] },
   tool_record_locus: { inputs: [{ name: "addressing_kind", required: true }, { name: "addressing_id", required: true }, { name: "content", required: true }, { name: "source" }, { name: "source_channels" }, { name: "observability" }, { name: "intensity" }, { name: "alignment" }, { name: "concentration" }, { name: "definiteness" }, { name: "tentative" }] },
