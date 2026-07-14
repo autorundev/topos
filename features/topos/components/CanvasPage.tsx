@@ -846,7 +846,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, selItem, pos, handles, heights, portColor, portLabel, expanded, toggleTaxo, containerLayouts]);
+  }, [tasks, flowIds, connected, selected, selItem, pos, handles, heights, portColor, portLabel, expanded, toggleTaxo, containerLayouts, isDark]);
 
   // Absolute-position every visible taxo cell (leaf AND nested container) for every expanded
   // class, by combining ELK's position for the class root with `containerLayout`'s relative grid.
@@ -895,7 +895,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         } as ContainerNodeData,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [containerFlat, taxoById, selected, selTaxo, classOpacity, handles, portColor, portLabel, toggleTaxo]);
+  }, [containerFlat, taxoById, selected, selTaxo, classOpacity, handles, portColor, portLabel, toggleTaxo, isDark]);
 
   // Leaf cells (collapsed-family or instance cards) inside any expanded container, at their
   // absolute canvas position — reuse the existing FamilyNode/InstanceNode components as-is.
