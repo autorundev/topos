@@ -173,4 +173,74 @@ Each wave: build green (`npm run build`; only the known `netlify/edge-functions/
 error), Puppeteer screenshot for owner review, adversarial review, gate, merge, then deploy at the end
 (or per-wave if the owner wants to watch it land).
 
+## Amendment 2026-07-14 — grid discipline, edge geometry, pill-ification, DB-table schema blocks
+
+Owner request, added before any of Waves 1-4 executed. Extends (does not replace) the waves above —
+implemented as new plan tasks 13-17, appended to the implementation plan. Investigated before writing:
+`~/vectoros/src/tools/_schemas.py` has 41 `"enum"` fields (extractable exactly like the existing
+inputs/outputs — Step 2a precedent); vault tables have no ORM, they're raw `CREATE TABLE IF NOT EXISTS`
+across 14 files (101 statements total); `data/taxonomy.ts`'s `store_vault` class already lists instances
+named after real table names (e.g. `vault_items` → table `items`) — the extraction match key already
+exists in committed data, no new taxonomy needed.
+
+### 1. Edge geometry — 45° chamfer, not rounded corners
+
+`orthoPath` currently rounds each ELK bend with a quadratic Bézier (`radius=12`). Replace the rounded
+corner with a straight 45° chamfer (a PCB-trace / circuit-schematic look, on-brand for the engineering-
+drawing identity): draw a straight line between the two radius-clamped points instead of a curve through
+the bend vertex. Since incoming/outgoing segments are always axis-aligned (ELK's `ORTHOGONAL` routing)
+and the clamp distance is equal on both legs, the connecting line is geometrically exactly 45°.
+
+### 2. Grid discipline — 24px outer canvas grid (mandatory), 8px inner card grid
+
+**Scope split (deliberate, not every number forced to 24):** the 24px grid is mandatory for every
+independently ELK-positioned element — task bricks, class-root containers, zones, bands, item cards —
+since those are what the eye reads as "placed on the canvas." Nested taxo children (family/instance leaf
+cells inside an expanded container) are positioned *relatively* to an already-grid-anchored parent via
+`containerLayout`'s masonry — they follow the finer 8px system, since forcing every masonry sum to also
+land on a 24-multiple would fight the packing algorithm for no visible benefit (their parent is already
+grid-true, which is what reads as "tied to the grid" one level down).
+
+**The actual guarantee mechanism** is not hand-tuning every constant to already be a multiple (masonry
+sums of 8px children don't reliably land on 24-multiples even with clean inputs) — it's two small,
+independently-testable pure functions applied at the right points:
+- `roundUp24(n)`: applied to every top-level node's *computed* width/height (collapsed brick, expanded
+  container, item card, zone/band contour) — pads up to the next 24px, never shrinks below content.
+- `snapPos24(pos)`: applied ONCE to `computeLayout`'s final `pos`, after ELK's pass 2 — rounds every
+  node's `x`/`y` to the nearest 24px. Edge routes are then corrected by the same per-node delta (a
+  single averaged translation per edge, not a per-bend-point recompute) so ports/edges stay visually
+  attached to their (now-snapped) node.
+Existing size constants (`NODE_W`, `TAXO_W`, ELK spacing options, `CELL_GAP`, `CONTAINER_*`, `ITEM_*`,
+`BAND_*`) are ALSO retuned toward clean 24-multiples (outer) / 8-multiples (inner) as a polish layer —
+this reduces the padding `roundUp24` has to add, it is not itself the guarantee.
+
+Background dots move to a single 24px grid (superseding Wave-1's two-layer 15px/105px split), offset so
+dots sit at the CENTER of each 24×24 cell (`offset = 12`), not at the cell corners.
+
+### 3. No bare text — parameters, types, and enum values become pills
+
+Two remaining bare-text spots (missed in the original Wave-2 scope, which only covered
+`TaxoIOChip`): `DetailDrawer`'s "ВХОД → ВЫХОД" section (currently a comma-joined plain string) and
+`ItemDrawer`'s `example_values` (plain `<p>` text). Both become the same pill treatment as `TaxoIOChip`.
+
+**Enumerations get one pill per value**, extracted from `_schemas.py`'s `"enum"` arrays (same AST
+extractor as Step 2a, extended) — e.g. a `status` parameter with `enum: ["active","paused"]` renders as
+two small pills, not a string. **Pills are clickable** — owner asked for this explicitly but did not
+specify the action; **my call, flagged for redirect:** click = copy the pill's exact text to the
+clipboard (a small, real utility for someone reading the map who wants to paste a param/enum name into
+code or chat), with a brief visual flash for feedback. This is the smallest defensible interpretation of
+"нажимаемые" that doesn't invent a new UI surface (a filter/highlight-on-click feature would be a
+materially bigger, separate ask).
+
+### 4. DB-table schema block on vault store nodes
+
+When an instance under `store_vault` (or the other 4 `store_*` classes, if their taxonomy ever gains
+real per-table children — currently only `store_vault` does) names a real table, its leaf card grows a
+schema block: table name + one pill per column (`name: TYPE`, required/nullable distinguished the same
+way as tool parameters — `NOT NULL` → filled terminal, nullable → hollow). Extraction mirrors Step 2a:
+a throwaway AST/regex parser over the 14 files' `CREATE TABLE IF NOT EXISTS <name> (...)` blocks (no
+import of the vectoros package), matched to taxonomy instance names (stripping the `*` dead-marker and
+skipping any instance whose name contains `.` — those are column-level notes like `items.type`, not
+real tables). Unmatched names reported both ways, same discipline as `check_taxo_io.ts`.
+
 ## Divergences → `2026-07-13-topos-blueprint-DIVERGENCES.md` (create on first divergence).

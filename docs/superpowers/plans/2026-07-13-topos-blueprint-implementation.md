@@ -1996,6 +1996,1136 @@ git commit -m "topos: prefers-reduced-motion — consolidated override for reflo
 
 ---
 
+# Amendment 2026-07-14 — grid discipline, 45° edges, pill-ification, DB-table schema
+
+Owner request, added before Tasks 1-12 executed. Design amendment:
+`docs/superpowers/specs/2026-07-13-topos-blueprint-design.md` § "Amendment 2026-07-14". These 5 tasks
+extend the plan above — **Task 13 must run before Tasks 5 and 8** (it retunes constants those tasks
+also touch; running it first means Tasks 5/8 are implemented directly against final numbers instead of
+being retuned twice). Tasks 14-17 have no such ordering constraint against 1-12, but Task 17 depends on
+Task 16 (schema data must exist before it can be rendered) and on Task 6/11 having landed (it edits
+`InstanceNode`'s post-Task-11 state).
+
+**One judgment call flagged for owner redirect:** "pills must be clickable" did not specify the click
+action. Task 15 implements it as copy-to-clipboard (the smallest real utility that doesn't invent a new
+UI surface) — say so if a different action (e.g. filter/highlight-by-value) was intended.
+
+---
+
+## Task 13: Global 24px outer grid + 8px inner grid (mandatory, guaranteed by construction)
+
+**Files:**
+- Create: `features/topos/lib/gridSnap.ts`
+- Create: `scripts/check_grid_snap.ts`
+- Modify: `features/topos/components/CanvasPage.tsx` (constants + `computeLayout` + `zoneNodes` +
+  `bands`)
+- Modify: `features/topos/lib/containerLayout.ts` (constants)
+
+**Interfaces:**
+- Produces: `GRID = 24`, `roundUp24(n): number`, `snapTo24(n): number`,
+  `snapPositions({pos, pts, edgeEndpoints}): {pos, pts}` from `features/topos/lib/gridSnap.ts`.
+- **The guarantee mechanism is `roundUp24` (applied to every top-level node's computed width/height)
+  and `snapPositions` (applied once to `computeLayout`'s final `pos`/edge points) — not hand-tuned
+  constants.** Constants are retuned too, as a polish layer that reduces the padding `roundUp24` adds,
+  per the design amendment's explicit scoping (nested taxo children stay on the 8px inner system).
+
+- [ ] **Step 1: Write `features/topos/lib/gridSnap.ts`**
+
+```typescript
+/**
+ * The 24px canvas grid guarantee (Blueprint amendment 2026-07-14). Two small pure functions:
+ * `roundUp24` pads a computed size UP to the next 24px multiple (applied at every top-level node's
+ * width/height computation — collapsed brick, expanded container, item card, zone/band contour).
+ * `snapPositions` rounds every node's final x/y to the NEAREST 24px multiple, once, after ELK's pass
+ * 2 — and corrects edge routes by the same per-node delta so ports/edges stay visually attached.
+ *
+ * Nested taxo children (family/instance leaves inside an expanded container) are NOT snapped here —
+ * they're positioned relatively via `containerLayout`'s masonry, inside an already-grid-anchored
+ * parent, which is what "tied to the grid" means one level down (see the design amendment's scope
+ * note — forcing every masonry sum onto a 24-multiple would fight the packer for no visible gain).
+ */
+export const GRID = 24;
+
+export function roundUp24(n: number): number {
+  return Math.ceil(n / GRID) * GRID;
+}
+
+export function snapTo24(n: number): number {
+  return Math.round(n / GRID) * GRID;
+}
+
+export interface XY { x: number; y: number }
+
+export interface SnapInput {
+  pos: Record<string, XY>;
+  pts: Record<string, XY[]>;
+  edgeEndpoints: Record<string, { source: string; target: string }>;
+}
+
+export function snapPositions({ pos, pts, edgeEndpoints }: SnapInput): { pos: Record<string, XY>; pts: Record<string, XY[]> } {
+  const delta: Record<string, { dx: number; dy: number }> = {};
+  const snappedPos: Record<string, XY> = {};
+  for (const id of Object.keys(pos)) {
+    const p = pos[id];
+    const sx = snapTo24(p.x), sy = snapTo24(p.y);
+    delta[id] = { dx: sx - p.x, dy: sy - p.y };
+    snappedPos[id] = { x: sx, y: sy };
+  }
+  const snappedPts: Record<string, XY[]> = {};
+  for (const [edgeId, points] of Object.entries(pts)) {
+    const ep = edgeEndpoints[edgeId];
+    const dSrc = ep ? (delta[ep.source] ?? { dx: 0, dy: 0 }) : { dx: 0, dy: 0 };
+    const dTgt = ep ? (delta[ep.target] ?? { dx: 0, dy: 0 }) : { dx: 0, dy: 0 };
+    const dx = (dSrc.dx + dTgt.dx) / 2, dy = (dSrc.dy + dTgt.dy) / 2;
+    snappedPts[edgeId] = points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }));
+  }
+  return { pos: snappedPos, pts: snappedPts };
+}
+```
+
+- [ ] **Step 2: Write the failing test — `scripts/check_grid_snap.ts`**
+
+```typescript
+/**
+ * Unit test for gridSnap's roundUp24 / snapTo24 / snapPositions (Blueprint amendment 2026-07-14).
+ * Run: npx tsx scripts/check_grid_snap.ts
+ */
+import { roundUp24, snapTo24, snapPositions, GRID } from '../features/topos/lib/gridSnap';
+
+let failed = false;
+function assert(cond: boolean, label: string) {
+  if (cond) console.log(`  PASS  ${label}`);
+  else { console.error(`  FAIL  ${label}`); failed = true; }
+}
+
+assert(roundUp24(232) === 240, `roundUp24(232) === 240 (got ${roundUp24(232)})`);
+assert(roundUp24(240) === 240, `roundUp24(240) === 240 — already-aligned stays put (got ${roundUp24(240)})`);
+assert(roundUp24(241) === 264, `roundUp24(241) === 264 — one over rounds a full step up (got ${roundUp24(241)})`);
+assert(snapTo24(50) === 48, `snapTo24(50) === 48 (got ${snapTo24(50)})`);
+assert(snapTo24(61) === 72, `snapTo24(61) === 72 (got ${snapTo24(61)})`);
+
+// snapPositions: two nodes, an edge between them, points not on the grid — after snapping, both
+// positions land on 24-multiples AND the edge's endpoints shift by the AVERAGE of both deltas.
+{
+  const pos = { a: { x: 10, y: 10 }, b: { x: 100, y: 34 } };
+  const pts = { e1: [{ x: 10, y: 20 }, { x: 55, y: 20 }, { x: 100, y: 44 }] };
+  const edgeEndpoints = { e1: { source: 'a', target: 'b' } };
+  const { pos: sp, pts: spts } = snapPositions({ pos, pts, edgeEndpoints });
+  assert(sp.a.x % GRID === 0 && sp.a.y % GRID === 0, `node a snapped to a 24-multiple (${sp.a.x},${sp.a.y})`);
+  assert(sp.b.x % GRID === 0 && sp.b.y % GRID === 0, `node b snapped to a 24-multiple (${sp.b.x},${sp.b.y})`);
+  const expectedDx = ((snapTo24(10) - 10) + (snapTo24(100) - 100)) / 2;
+  assert(Math.abs(spts.e1[0].x - (10 + expectedDx)) < 1e-9, `edge point 0 shifted by the averaged delta (got dx applied: ${spts.e1[0].x - 10})`);
+  assert(spts.e1.length === 3, `edge point count unchanged (${spts.e1.length})`);
+}
+
+console.log('\n' + (failed ? 'gridSnap check FAILED.' : 'gridSnap check PASSED.'));
+if (failed) process.exit(1);
+```
+
+- [ ] **Step 3: Run test to verify it passes**
+
+```bash
+npx tsx scripts/check_grid_snap.ts
+```
+
+Expected: all lines `PASS`, `gridSnap check PASSED.`
+
+- [ ] **Step 4: Retune outer-grid constants in `features/topos/components/CanvasPage.tsx`**
+
+A single consolidated numeric retuning — each is a literal-value change only, no logic change:
+
+| Constant | Line (pre-amendment) | Before | After |
+| --- | --- | --- | --- |
+| `NODE_W` | 27 | `232` | `240` |
+| `ROW_H` | 135 | `34` | `32` |
+| `ITEM_W, ITEM_H, ITEM_GX, ITEM_GY, BAND_LABEL, BAND_PAD, BAND_GAP` | 132 | `174, 54, 16, 14, 30, 16, 66` | `168, 48, 24, 24, 24, 24, 72` |
+| `elk.spacing.nodeNode` | 184 | `'58'` | `'48'` |
+| `elk.layered.spacing.nodeNodeBetweenLayers` | 185 | `'150'` | `'144'` |
+| `SAFE_ZONE` | 39 | `34` | `24` |
+| `elk.spacing.edgeEdge` | 188 | `'16'` | `'24'` |
+| `elk.layered.spacing.edgeEdgeBetweenLayers` | 189 | `'16'` | `'24'` |
+
+(`elk.spacing.portPort` at line 190, value `'13'`, is deliberately EXEMPT — it governs intra-node port
+distribution, not node-to-node spacing, so it doesn't participate in the grid-summation property.)
+
+Apply each as a direct literal replacement at its line. Example for `NODE_W` (line 27):
+
+```typescript
+// before
+const NODE_W = 232;   // I/O chips stack as rows inside the card (grows height, not width)
+// after
+const NODE_W = 240;   // I/O chips stack as rows inside the card (grows height, not width) — 24px-grid-aligned
+```
+
+Apply the same literal-only pattern for each row in the table above (each is a single-line numeric
+swap; the surrounding code/comments on that line stay unchanged except where the table shows a full
+replacement group like `ITEM_W...BAND_GAP`, which is one combined `const` statement — line 132):
+
+```typescript
+// before
+const ITEM_W = 174, ITEM_H = 54, ITEM_GX = 16, ITEM_GY = 14, BAND_LABEL = 30, BAND_PAD = 16, BAND_GAP = 66;
+// after
+const ITEM_W = 168, ITEM_H = 48, ITEM_GX = 24, ITEM_GY = 24, BAND_LABEL = 24, BAND_PAD = 24, BAND_GAP = 72;
+```
+
+- [ ] **Step 5: Retune inner-grid (8px) constants in `features/topos/lib/containerLayout.ts`**
+
+```typescript
+// before (line 26-31)
+export const TAXO_W = 156;
+export const TAXO_H: Record<TaxoKind, number> = { family: 40, instance: 34 };
+export const CONTAINER_HEADER_H = 40;    // (or 50, if Task 5 already ran — see below)
+export const CONTAINER_GUTTER_W = 124;
+export const CONTAINER_BODY_PAD = 14;
+export const CELL_GAP = 10;
+// after
+export const TAXO_W = 168;
+export const TAXO_H: Record<TaxoKind, number> = { family: 40, instance: 32 };
+export const CONTAINER_HEADER_H = 48;    // outer-grid-facing (a class-root container's overall size feeds ELK)
+export const CONTAINER_GUTTER_W = 120;
+export const CONTAINER_BODY_PAD = 16;
+export const CELL_GAP = 8;
+```
+
+(If Task 5 has already run, `CONTAINER_HEADER_H` will read `50` at this point — change that `50` to
+`48` instead of the `40` shown above; the end state is `48` either way.)
+
+```typescript
+// before (line 41-42)
+export const IO_ROW_H = 15;
+export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row
+// after
+export const IO_ROW_H = 16;
+export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row — a connective micro-gap, deliberately exempt from the 8px grid (like a border width)
+```
+
+- [ ] **Step 6: Wire `roundUp24` into `computeLayout`'s size computation**
+
+`features/topos/components/CanvasPage.tsx` — add the import (near the other `lib/` imports, after line
+25):
+
+```typescript
+import { roundUp24, snapPositions } from '../lib/gridSnap';
+```
+
+Replace the sizing block (lines 230-245):
+
+```typescript
+// before
+  tasks.forEach(t => {
+    const rows = Math.max(inList[t.id]?.length ?? 0, outList[t.id]?.length ?? 0);
+    if (expanded.has(t.id) && toposService.getTaxonomy(t.id).length > 0) {
+      const cl = containerLayout(t.id, expanded, tasks);
+      const portsH = cl.header + rows * ROW_H + 6;
+      const h = Math.max(cl.size.h, portsH);
+      containerLayouts[t.id] = h === cl.size.h ? cl : { ...cl, size: { w: cl.size.w, h } };
+      widths[t.id] = cl.size.w;
+      heights[t.id] = h;
+    } else {
+      widths[t.id] = NODE_W;
+      heights[t.id] = headerH(t) + rows * ROW_H + 6;
+    }
+  });
+// after
+  tasks.forEach(t => {
+    const rows = Math.max(inList[t.id]?.length ?? 0, outList[t.id]?.length ?? 0);
+    if (expanded.has(t.id) && toposService.getTaxonomy(t.id).length > 0) {
+      const cl = containerLayout(t.id, expanded, tasks);
+      const portsH = cl.header + rows * ROW_H + 6;
+      const h = roundUp24(Math.max(cl.size.h, portsH));
+      const w = roundUp24(cl.size.w);
+      containerLayouts[t.id] = (h === cl.size.h && w === cl.size.w) ? cl : { ...cl, size: { w, h } };
+      widths[t.id] = w;
+      heights[t.id] = h;
+    } else {
+      widths[t.id] = roundUp24(NODE_W);
+      heights[t.id] = roundUp24(headerH(t) + rows * ROW_H + 6);
+    }
+  });
+```
+
+- [ ] **Step 7: Wire `snapPositions` into `computeLayout`'s return**
+
+Replace lines 296-312:
+
+```typescript
+// before
+  const res: any = await elk.layout(pass2 as any);
+  const pos: Pos = {};
+  const handles: Handles = {};
+  (res.children ?? []).forEach((c: any) => {
+    pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
+    (c.ports ?? []).forEach((p: any) => {
+      const side = (p.layoutOptions?.['elk.port.side'] ?? 'EAST') as Side;
+      (handles[c.id] ??= []).push({ id: p.id, kind: p.id.endsWith('__s') ? 'source' : 'target', side, x: p.x ?? 0, y: p.y ?? 0 });
+    });
+  });
+  const pts: EdgePts = {};
+  (res.edges ?? []).forEach((e: any) => {
+    const sec = e.sections?.[0];
+    if (!sec) return;
+    pts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
+  });
+  return { pos, pts, handles, heights, widths, containerLayouts };
+// after
+  const res: any = await elk.layout(pass2 as any);
+  const rawPos: Pos = {};
+  const handles: Handles = {};
+  (res.children ?? []).forEach((c: any) => {
+    rawPos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
+    (c.ports ?? []).forEach((p: any) => {
+      const side = (p.layoutOptions?.['elk.port.side'] ?? 'EAST') as Side;
+      (handles[c.id] ??= []).push({ id: p.id, kind: p.id.endsWith('__s') ? 'source' : 'target', side, x: p.x ?? 0, y: p.y ?? 0 });
+    });
+  });
+  const rawPts: EdgePts = {};
+  (res.edges ?? []).forEach((e: any) => {
+    const sec = e.sections?.[0];
+    if (!sec) return;
+    rawPts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
+  });
+  const edgeEndpoints: Record<string, { source: string; target: string }> = {};
+  edges.forEach(e => { edgeEndpoints[e.id] = { source: e.source, target: e.target }; });
+  const { pos, pts } = snapPositions({ pos: rawPos, pts: rawPts, edgeEndpoints });
+  return { pos, pts, handles, heights, widths, containerLayouts };
+```
+
+- [ ] **Step 8: `roundUp24` + retuned margins on zone/band contours**
+
+`zoneNodes` (lines 791-810), retune `PAD`/`TOP` and round the derived box:
+
+```typescript
+// before
+  const zoneNodes: Node[] = useMemo(() => {
+    if (!pos) return [];
+    const PAD = 46, TOP = 34;
+    return layers.map((layer) => {
+      const members = tasks.filter(t => t.layer_id === layer.id && pos[t.id]);
+      if (!members.length) return null;
+      const minX = Math.min(...members.map(t => pos[t.id].x)) - PAD;
+      const minY = Math.min(...members.map(t => pos[t.id].y)) - PAD - TOP;
+      const maxX = Math.max(...members.map(t => pos[t.id].x + (widths[t.id] ?? NODE_W))) + PAD;
+      const maxY = Math.max(...members.map(t => pos[t.id].y + (heights[t.id] ?? headerH(t) + ROW_H))) + PAD;
+      return {
+        id: `zone_${layer.id}`, type: 'zone', position: { x: minX, y: minY },
+        data: { label: layer.name, role: layer.role, color: clusterColorFor(layer.slug as ClusterSlug, isDark) },
+        style: { width: maxX - minX, height: maxY - minY }, draggable: false, selectable: false, zIndex: -1,
+      } as Node;
+    }).filter(Boolean) as Node[];
+  }, [layers, tasks, pos, heights, widths, isDark]);
+// after
+  const zoneNodes: Node[] = useMemo(() => {
+    if (!pos) return [];
+    const PAD = 48, TOP = 24;
+    return layers.map((layer) => {
+      const members = tasks.filter(t => t.layer_id === layer.id && pos[t.id]);
+      if (!members.length) return null;
+      const minX = Math.min(...members.map(t => pos[t.id].x)) - PAD;
+      const minY = Math.min(...members.map(t => pos[t.id].y)) - PAD - TOP;
+      const maxX = Math.max(...members.map(t => pos[t.id].x + (widths[t.id] ?? NODE_W))) + PAD;
+      const maxY = Math.max(...members.map(t => pos[t.id].y + (heights[t.id] ?? headerH(t) + ROW_H))) + PAD;
+      return {
+        id: `zone_${layer.id}`, type: 'zone', position: { x: minX, y: minY },
+        data: { label: layer.name, role: layer.role, color: clusterColorFor(layer.slug as ClusterSlug, isDark) },
+        style: { width: roundUp24(maxX - minX), height: roundUp24(maxY - minY) }, draggable: false, selectable: false, zIndex: -1,
+      } as Node;
+    }).filter(Boolean) as Node[];
+  }, [layers, tasks, pos, heights, widths, isDark]);
+```
+
+(NOTE: the `data: {...color: clusterColorFor(...)}` line already reflects Task 3's edit — if Task 3 has
+not yet run when this step executes, keep whatever that line currently reads and only change `PAD`/
+`TOP`/the `style:` line as shown.)
+
+`bands` (lines 925-948) — round the final band height:
+
+```typescript
+// before (line 946)
+    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 22, y: maxY + BAND_GAP - 6 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: bandW + 44, height: h + 12 }, draggable: false, selectable: false, zIndex: -1 } as Node);
+// after
+    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 24, y: maxY + BAND_GAP - 8 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: roundUp24(bandW + 48), height: roundUp24(h + 16) }, draggable: false, selectable: false, zIndex: -1 } as Node);
+```
+
+- [ ] **Step 9: Single 24px background grid, dots centered in each cell**
+
+Supersedes Task 4's two-layer `<Background>` (fine dots @ 15px + major lines @ 105px) with one 24px dot
+grid, offset to cell centers:
+
+```typescript
+// before (Task 4's version)
+<Background id="bg-fine" gap={15} size={1} variant={BackgroundVariant.Dots} color={isDark ? '#1b2838' : '#dfe4ea'} />
+<Background id="bg-major" gap={105} size={1} variant={BackgroundVariant.Lines} color={isDark ? '#141f2c' : '#e6e9ee'} style={{ opacity: isDark ? 0.5 : 0.35 }} />
+// after
+<Background id="bg-grid" gap={24} size={1} offset={12} variant={BackgroundVariant.Dots} color={isDark ? '#1b2838' : '#dfe4ea'} />
+```
+
+(If Task 4 has not yet run when this step executes, add this single `<Background>` line in place of
+the original single `<Background gap={22} .../>` at that spot instead.)
+
+- [ ] **Step 10: Build check**
+
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"   # expect 1
+npm run build 2>&1 | tail -5                  # expect ✓ built
+npx tsx scripts/check_grid_snap.ts            # expect PASSED
+npx tsx scripts/check_container_layout.ts     # expect PASSED (constants changed, no assertion hardcodes old numeric values)
+```
+
+- [ ] **Step 11: Puppeteer screenshot — verify grid alignment**
+
+Screenshot the canvas at a zoom level where the 24px dot grid is visible; for 3-4 sampled nodes, read
+their rendered bounding box (`page.evaluate` → `getBoundingClientRect()` on `.react-flow__node`,
+converted back to flow coordinates via React Flow's own `x`/`y`/zoom transform, or simpler: read the
+node's `transform: translate(x,y)` inline style directly) and confirm `x % 24 === 0 && y % 24 === 0`
+for each, and that width/height are also multiples of 24.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add features/topos/lib/gridSnap.ts scripts/check_grid_snap.ts features/topos/components/CanvasPage.tsx features/topos/lib/containerLayout.ts
+git commit -m "topos: mandatory 24px outer grid (roundUp24 + snapPositions) + 8px inner grid retuning"
+```
+
+---
+
+## Task 14: 45° chamfered edges (replace rounded corners)
+
+**Files:**
+- Modify: `features/topos/components/CanvasPage.tsx` (`orthoPath`)
+
+**Interfaces:** No signature change.
+
+- [ ] **Step 1: Replace the rounded-corner `Q` command with a straight chamfer**
+
+Lines 316-331:
+
+```typescript
+// before
+function orthoPath(p: XY[], radius = 12): string {
+  if (p.length < 2) return '';
+  const dist = (a: XY, b: XY) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  let d = `M ${p[0].x},${p[0].y}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const cur = p[i], prev = p[i - 1], next = p[i + 1];
+    const d1 = dist(prev, cur), d2 = dist(cur, next);
+    const r = Math.min(radius, d1 / 2, d2 / 2);
+    const c1 = { x: cur.x + (prev.x - cur.x) / d1 * r, y: cur.y + (prev.y - cur.y) / d1 * r };
+    const c2 = { x: cur.x + (next.x - cur.x) / d2 * r, y: cur.y + (next.y - cur.y) / d2 * r };
+    d += ` L ${c1.x},${c1.y} Q ${cur.x},${cur.y} ${c2.x},${c2.y}`;
+  }
+  const last = p[p.length - 1];
+  d += ` L ${last.x},${last.y}`;
+  return d;
+}
+// after
+// 45° chamfer instead of a rounded corner (circuit-trace look, Blueprint amendment 2026-07-14):
+// c1/c2 are equidistant (`r`) from the bend along each axis-aligned leg, so the straight line
+// between them is geometrically exactly 45°.
+function orthoPath(p: XY[], radius = 12): string {
+  if (p.length < 2) return '';
+  const dist = (a: XY, b: XY) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  let d = `M ${p[0].x},${p[0].y}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const cur = p[i], prev = p[i - 1], next = p[i + 1];
+    const d1 = dist(prev, cur), d2 = dist(cur, next);
+    const r = Math.min(radius, d1 / 2, d2 / 2);
+    const c1 = { x: cur.x + (prev.x - cur.x) / d1 * r, y: cur.y + (prev.y - cur.y) / d1 * r };
+    const c2 = { x: cur.x + (next.x - cur.x) / d2 * r, y: cur.y + (next.y - cur.y) / d2 * r };
+    d += ` L ${c1.x},${c1.y} L ${c2.x},${c2.y}`;
+  }
+  const last = p[p.length - 1];
+  d += ` L ${last.x},${last.y}`;
+  return d;
+}
+```
+
+(`ContainsEdgeComp` at line 341-345 calls `orthoPath(d.points, 6)` — same function, smaller radius,
+picks up the chamfer automatically, no separate change needed.)
+
+- [ ] **Step 2: Build check**
+
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"   # expect 1
+npm run build 2>&1 | tail -5                  # expect ✓ built
+```
+
+- [ ] **Step 3: Puppeteer screenshot**
+
+Zoom into an edge with a bend (any edge whose source/target sit on different rows). Confirm the corner
+is now a flat diagonal cut, not a curve — visually compare against a pre-Task-14 screenshot of the same
+edge.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add features/topos/components/CanvasPage.tsx
+git commit -m "topos: 45° chamfered edge corners (circuit-trace look), replacing rounded corners"
+```
+
+---
+
+## Task 15: Pill-ify remaining bare text + clickable enum-value pills
+
+**Files:**
+- Modify: `scripts/extract_taxo_io.py` (extract `enum` arrays per input)
+- Modify: `data/taxonomy_io.ts` (regenerated — add `enumValues` where present)
+- Modify: `types.ts` (`TaxoIO` — add `enumValues?: string[]` per input)
+- Modify: `features/topos/components/CanvasPage.tsx` (`DetailDrawer`, `ItemDrawer`, a new
+  `ClickablePill`, `TaxoIOChip`'s enum row)
+
+**Interfaces:**
+- Extends `TaxoIO.inputs[]` items with an optional `enumValues?: string[]`.
+- Produces `ClickablePill({ text, color }): JSX` — copy-to-clipboard on click, reused by all 3 spots.
+
+- [ ] **Step 1: Extract `enum` arrays in the Python extractor**
+
+`scripts/extract_taxo_io.py` — inspect the input-parsing loop (near where `required`/`name` are read
+per property) and add `enum` capture. Locate the block that builds each input's `{"name":..,
+"required":..}` dict (inside `extract_tools`, iterating `properties.items()`) and extend it:
+
+```python
+# before (representative — the exact surrounding loop already exists; this is the per-property dict construction to extend)
+        inputs.append({"name": prop_name, "required": prop_name in required_set})
+# after
+        prop_schema = properties.get(prop_name, {})
+        enum_vals = prop_schema.get("enum") if isinstance(prop_schema, dict) else None
+        entry = {"name": prop_name, "required": prop_name in required_set}
+        if isinstance(enum_vals, list) and enum_vals:
+            entry["enum"] = [str(v) for v in enum_vals]
+        inputs.append(entry)
+```
+
+(Locate the ACTUAL variable names in `extract_tools` — `prop_schema`/`properties`/`required_set` are
+descriptive placeholders for whatever the existing loop already calls them; the executor must read the
+existing function body first and adapt these names to match exactly, since the file wasn't re-quoted in
+full here — the transformation itself, "read the property's own `enum` list and attach it to the
+output dict", is exact and unambiguous. Confirm via `npx tsx scripts/check_taxo_io.ts` afterward, which
+will catch a wiring mistake immediately.)
+
+- [ ] **Step 2: Update `TaxoIO` type + regenerate `data/taxonomy_io.ts`**
+
+`types.ts` — find the existing `TaxoIO` interface and extend the input item shape:
+
+```typescript
+// before
+export interface TaxoIO {
+  inputs?: { name: string; required?: boolean }[];
+  outputs?: string[];
+}
+// after
+export interface TaxoIO {
+  inputs?: { name: string; required?: boolean; enumValues?: string[] }[];
+  outputs?: string[];
+}
+```
+
+Regenerate:
+
+```bash
+cd ~/topos
+python3 scripts/extract_taxo_io.py > /tmp/taxo_io_v2.json
+python3 -c "import json; d=json.load(open('/tmp/taxo_io_v2.json')); print(d['tools']['update_focus'])"
+```
+
+Expected: `update_focus`'s `status` input now carries `"enum": ["active", "paused"]` (per the
+`_schemas.py` grep at design-amendment time, line 57/198/329 all show `"status": {"type": "string",
+"enum": ["active", "paused"]}` across different tool schemas — confirm `update_focus`'s specifically has
+one). Add the `enumValues` field to that entry in `data/taxonomy_io.ts` by hand-copying the exact JSON
+array (same discipline as Task 7 — never retype from memory, copy the extractor's literal output).
+
+- [ ] **Step 3: Run the self-check**
+
+```bash
+npx tsx scripts/check_taxo_io.ts 2>&1 | tail -10
+```
+
+Expected: still `PASSED` (the check only asserts `inputs` name/required parity — an added `enumValues`
+field doesn't break its existing deep-equality assertions as long as those assertions compare specific
+keys, not the whole object; if the check does a full deep-equal and now fails on the new field, extend
+`check_taxo_io.ts`'s comparison to also diff `enumValues` the same way it diffs `required`).
+
+- [ ] **Step 4: `ClickablePill` — copy-to-clipboard, reused everywhere bare text remains**
+
+Add near `TaxoIOChip` (after its definition):
+
+```typescript
+// Blueprint amendment 2026-07-14: no bare text for parameters/types/enum values — everything becomes
+// a pill, and every pill is clickable. Click action (owner asked for "clickable", didn't specify the
+// action — this is the smallest real utility: copy the exact text, useful when reading the map and
+// wanting to paste a param/enum/column name into code or chat). Brief opacity flash confirms the copy.
+function ClickablePill({ text, color, mono = true }: { text: string; color: string; mono?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(text).catch(() => {});
+        setCopied(true);
+        setTimeout(() => setCopied(false), 400);
+      }}
+      title={`${text} (клик — копировать)`}
+      style={{
+        display: 'inline-flex', maxWidth: 140, minWidth: 0, cursor: 'pointer',
+        border: `1px solid ${color}`, background: copied ? `${color}44` : `${color}1f`, color,
+        borderRadius: 4, padding: '2px 6px', fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+        fontSize: 9, lineHeight: 1.3, transition: 'background 150ms var(--ease-out)',
+      }}
+    >
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+    </button>
+  );
+}
+```
+
+Add `useState` to the existing React import at the top of the file (line 1):
+
+```typescript
+// before
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+// after (no change — useState is already imported)
+```
+
+(`useState` is already imported — confirmed at line 1 — no import change needed for this step.)
+
+- [ ] **Step 5: Pill-ify `DetailDrawer`'s "ВХОД → ВЫХОД" section**
+
+Lines 1131-1138:
+
+```typescript
+// before
+      {io && (
+        <Section title="ВХОД → ВЫХОД">
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.6, color: 'var(--text-muted,#c2c9d4)' }}>
+            <div><span style={{ opacity: 0.5 }}>in: </span>{[...io.inputs.required, ...io.inputs.optional].map(ioLabel).join(', ') || '—'}</div>
+            <div><span style={{ opacity: 0.5 }}>out: </span>{ioLabel(io.outputs.primary)}</div>
+          </div>
+        </Section>
+      )}
+// after
+      {io && (
+        <Section title="ВХОД → ВЫХОД">
+          <div style={{ fontSize: 9, opacity: 0.5, width: '100%', marginBottom: 2 }}>in</div>
+          {[...io.inputs.required, ...io.inputs.optional].map(ioLabel).map(label => (
+            <ClickablePill key={label} text={label} color={color} />
+          ))}
+          <div style={{ fontSize: 9, opacity: 0.5, width: '100%', margin: '6px 0 2px' }}>out</div>
+          <ClickablePill text={ioLabel(io.outputs.primary)} color={color} />
+        </Section>
+      )}
+```
+
+(`Section`'s wrapping `<div style={{display:'flex', flexWrap:'wrap', gap: 5}}>` — line 1234 — already
+lays out its children as a wrapping pill row, so this needs no extra wrapper; the two `fontSize:9`
+labels above are just section sub-headers within that same flex row, and `width:'100%'` forces
+`in`/`out` onto their own line before the pills that follow.)
+
+- [ ] **Step 6: Pill-ify `ItemDrawer`'s `example_values`**
+
+Line 1218:
+
+```typescript
+// before
+      {raw.example_values && <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted,#9aa4b2)', marginBottom: 12, fontFamily: 'var(--font-mono)' }}>{raw.example_values}</p>}
+// after
+      {raw.example_values && (
+        <Section title="ПРИМЕРЫ ЗНАЧЕНИЙ">
+          {String(raw.example_values).split(',').map((v: string) => v.trim()).filter(Boolean).map((v: string) => (
+            <ClickablePill key={v} text={v} color={color} />
+          ))}
+        </Section>
+      )}
+```
+
+(`example_values` is a comma-separated string in the source data — confirmed by its current plain-text
+render; splitting on `,` and trimming turns it into one pill per value without any data-file change.)
+
+- [ ] **Step 7: Enum-value pills on `TaxoIOChip`'s input rows**
+
+`InstanceNode`'s IO-row rendering (post-Task-6/11 state) needs an extra pill row under any input that
+carries `enumValues`. Locate the input-chip cell (post-Task-6: `<span ...>{ins[r] && <TaxoIOChip
+label={ins[r].name} kind={...} color={color} />}</span>`) and extend the row's container to also emit
+enum pills beneath the param pill when present:
+
+```typescript
+// before (post-Task-6/11 state)
+            <div key={r} style={{ minHeight: IO_ROW_H, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+              <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} kind={ins[r].required ? 'required' : 'optional'} color={color} />}</span>
+              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} kind="output" color={color} />}</span>
+            </div>
+// after
+            <div key={r} style={{ minHeight: IO_ROW_H, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+                <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} kind={ins[r].required ? 'required' : 'optional'} color={color} />}</span>
+                <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} kind="output" color={color} />}</span>
+              </div>
+              {ins[r]?.enumValues && ins[r].enumValues!.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, paddingLeft: 10 }}>
+                  {ins[r].enumValues!.map(v => <ClickablePill key={v} text={v} color={color} mono={false} />)}
+                </div>
+              )}
+            </div>
+```
+
+`instanceCellHeight` (in `containerLayout.ts`) must account for the extra enum-pill row height when
+present, or the masonry grid will under-size cells with enum params. Extend `ioRowsExtraHeight`'s
+caller chain — add a new export:
+
+```typescript
+// features/topos/lib/containerLayout.ts — add after ioRowsExtraHeight (post-Task-13 line numbers shift; locate by content)
+export const ENUM_ROW_H = 16;
+export function enumRowsExtraHeight(io?: TaxoIO): number {
+  if (!io?.inputs) return 0;
+  return io.inputs.filter(i => i.enumValues && i.enumValues.length > 0).length * ENUM_ROW_H;
+}
+```
+
+```typescript
+// instanceCellHeight — before
+export function instanceCellHeight(taxoId: string): number {
+  return TAXO_H.instance + ioRowsExtraHeight(ioRowCount(toposService.getTaxoIO(taxoId)));
+}
+// after
+export function instanceCellHeight(taxoId: string): number {
+  const io = toposService.getTaxoIO(taxoId);
+  return TAXO_H.instance + ioRowsExtraHeight(ioRowCount(io)) + enumRowsExtraHeight(io);
+}
+```
+
+And in `InstanceNode` (CanvasPage.tsx), the `height` computation must match:
+
+```typescript
+// before
+  const height = TAXO_H.instance + ioRowsExtraHeight(rows);
+// after
+  const height = TAXO_H.instance + ioRowsExtraHeight(rows) + enumRowsExtraHeight(io);
+```
+
+(Add `enumRowsExtraHeight` to the existing `containerLayout` import at the top of `CanvasPage.tsx`.)
+
+- [ ] **Step 8: Build check**
+
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"   # expect 1
+npm run build 2>&1 | tail -5                  # expect ✓ built
+npx tsx scripts/check_taxo_io.ts              # expect PASSED
+npx tsx scripts/check_container_layout.ts     # expect PASSED
+```
+
+- [ ] **Step 9: Puppeteer screenshot + click-to-copy verify**
+
+Screenshot `update_focus`'s expanded card — confirm the `status` param shows `active`/`paused` as two
+small pills beneath it. Click one via Puppeteer (`page.click`) and read `navigator.clipboard` (grant
+clipboard permission on the page context first: `await context.overridePermissions(url,
+['clipboard-read', 'clipboard-write'])`) — confirm the clicked pill's exact text was copied. Also open
+a `DetailDrawer` and an `ItemDrawer` with `example_values` — confirm both show pills, not a bare string.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add scripts/extract_taxo_io.py data/taxonomy_io.ts types.ts features/topos/components/CanvasPage.tsx features/topos/lib/containerLayout.ts
+git commit -m "topos: pill-ify remaining bare text + clickable copy-to-clipboard pills + enum-value pills"
+```
+
+---
+
+## Task 16: Extract vault-table schema (columns + types)
+
+**Files:**
+- Create: `scripts/extract_vault_schema.py`
+- Create: `data/vault_schema.ts`
+- Create: `scripts/check_vault_schema.ts`
+- Modify: `services/toposService.ts` (`getVaultSchema`)
+
+**Interfaces:**
+- Produces: `VaultColumn { name: string; type: string; required: boolean }`,
+  `VaultTableSchema { table: string; columns: VaultColumn[] }`,
+  `VAULT_SCHEMA: Record<string, VaultTableSchema>` (keyed by the `data/taxonomy.ts` instance id, e.g.
+  `vault_items`), `toposService.getVaultSchema(taxoId): VaultTableSchema | undefined`.
+
+- [ ] **Step 1: Write `scripts/extract_vault_schema.py`**
+
+```python
+"""
+Throwaway AST/regex parser: extracts CREATE TABLE column schemas from ~/vectoros source, WITHOUT
+importing the vectoros package (mirrors scripts/extract_taxo_io.py's discipline).
+
+Vault tables have no ORM — they're raw `CREATE TABLE IF NOT EXISTS <name> (...)` strings, embedded as
+Python string literals (module-level `_SCHEMA = """..."""` assignments AND inline
+`conn.executescript("""...""")` calls) scattered across ~14 files. Strategy: use `ast` to find EVERY
+string-literal node in each file (safe — no exec/import), then regex-parse SQL `CREATE TABLE` blocks
+out of each string's raw text.
+
+Output JSON shape: {"<table_name>": [{"name":.., "type":.., "required": bool}, ...], ...}
+
+Run: python3 scripts/extract_vault_schema.py
+"""
+from __future__ import annotations
+
+import ast
+import json
+import re
+import sys
+from pathlib import Path
+
+VECTOROS_SRC = Path.home() / "vectoros" / "src"
+
+CREATE_TABLE_RE = re.compile(
+    r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)\s*;",
+    re.DOTALL,
+)
+COMMENT_RE = re.compile(r"--.*?(?=\n|$)")
+TABLE_CONSTRAINT_PREFIXES = ("PRIMARY KEY(", "PRIMARY KEY (", "FOREIGN KEY", "UNIQUE(", "UNIQUE (", "CHECK(", "CHECK (")
+COLUMN_RE = re.compile(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s+([A-Za-z]+)")
+
+
+def split_top_level(body: str) -> list[str]:
+    """Split a CREATE TABLE body on commas that are NOT inside parens (so DEFAULT (expr) survives)."""
+    parts, depth, cur = [], 0, []
+    for ch in body:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    if cur:
+        parts.append("".join(cur))
+    return parts
+
+
+def parse_create_table(name: str, body: str) -> list[dict]:
+    body = COMMENT_RE.sub("", body)
+    columns = []
+    for frag in split_top_level(body):
+        frag = frag.strip()
+        if not frag or frag.upper().startswith(TABLE_CONSTRAINT_PREFIXES):
+            continue
+        m = COLUMN_RE.match(frag)
+        if not m:
+            continue
+        col_name, col_type = m.group(1), m.group(2).upper()
+        required = "NOT NULL" in frag.upper() or "PRIMARY KEY" in frag.upper()
+        columns.append({"name": col_name, "type": col_type, "required": required})
+    return columns
+
+
+def extract_string_literals(py_path: Path) -> list[str]:
+    try:
+        tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+    except (SyntaxError, UnicodeDecodeError):
+        return []
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            out.append(node.value)
+    return out
+
+
+def main() -> int:
+    if not VECTOROS_SRC.exists():
+        print(json.dumps({"error": f"{VECTOROS_SRC} not found"}), file=sys.stderr)
+        return 1
+    tables: dict[str, list[dict]] = {}
+    for py_path in VECTOROS_SRC.rglob("*.py"):
+        for literal in extract_string_literals(py_path):
+            if "CREATE TABLE" not in literal:
+                continue
+            for m in CREATE_TABLE_RE.finditer(literal):
+                name, body = m.group(1), m.group(2)
+                cols = parse_create_table(name, body)
+                if cols:
+                    tables[name] = cols   # last definition wins if a table is re-declared (rare, matches SQLite IF NOT EXISTS semantics — first-wins would need re-order; last-wins is the simpler, documented choice)
+    print(json.dumps(tables, indent=2, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Step 2: Run it, inspect a known table**
+
+```bash
+cd ~/topos
+python3 scripts/extract_vault_schema.py > /tmp/vault_schema.json 2>&1
+python3 -c "import json; d=json.load(open('/tmp/vault_schema.json')); print(json.dumps(d.get('users'), indent=2))"
+```
+
+Expected: the `users` table's columns (`user_id INTEGER required=True`, `username TEXT required=False`,
+`is_owner INTEGER required=True` [has `NOT NULL`], etc. — matching the sample DDL read during
+investigation). If a table is missing or a column list looks truncated/wrong, the parser's comment-
+strip or top-level-comma-split has a gap on that file's specific style — note it, move on (best-effort,
+same discipline as `_derive_output_label`).
+
+- [ ] **Step 3: Match to taxonomy instance names, write `data/vault_schema.ts`**
+
+```bash
+python3 -c "
+import json
+d = json.load(open('/tmp/vault_schema.json'))
+print(len(d), 'tables extracted')
+print(sorted(d.keys())[:20])
+"
+```
+
+Cross-reference against `data/taxonomy.ts`'s `store_vault` (and the other 4 `store_*` classes, if they
+carry table-like instances) instance names — for each instance whose `name` field (after stripping a
+trailing `*` dead-marker and skipping any name containing `.`) matches an extracted table name exactly,
+emit an entry. Write `data/vault_schema.ts`:
+
+```typescript
+/**
+ * Extracted, self-checked (scripts/check_vault_schema.ts re-runs the extractor and compares) DB
+ * table schema — columns + types — for taxonomy instances under store_vault (and any other store_*
+ * class whose instances name real tables). Extractor-generated: NEVER hand-edit a value here — fix
+ * scripts/extract_vault_schema.py and regenerate (same discipline as data/taxonomy_io.ts).
+ */
+export interface VaultColumn { name: string; type: string; required: boolean }
+export interface VaultTableSchema { table: string; columns: VaultColumn[] }
+
+export const VAULT_SCHEMA: Record<string, VaultTableSchema> = {
+  // populated by copying the extractor's JSON output for each matched instance, e.g.:
+  // vault_items: { table: 'items', columns: [{ name: 'id', type: 'INTEGER', required: true }, ...] },
+};
+```
+
+(The executor fills the object body with one entry per matched instance, each `columns` array copied
+verbatim from the Step-2 JSON output for that table — never retyped from memory.)
+
+- [ ] **Step 4: Write the self-check — `scripts/check_vault_schema.ts`**
+
+```typescript
+/**
+ * VAULT_SCHEMA integrity check (Blueprint amendment 2026-07-14). Re-derives ground truth by
+ * shelling out to scripts/extract_vault_schema.py and cross-checks data/vault_schema.ts.
+ * Run: npx tsx scripts/check_vault_schema.ts
+ */
+import { execFileSync } from 'node:child_process';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { VAULT_SCHEMA } from '../data/vault_schema';
+import { TAXONOMY } from '../data/taxonomy';
+import type { TaxoNode } from '../types';
+
+let failed = false;
+function assert(cond: boolean, label: string) {
+  if (cond) console.log(`  PASS  ${label}`);
+  else { console.error(`  FAIL  ${label}`); failed = true; }
+}
+
+function flatten(nodes: TaxoNode[]): TaxoNode[] {
+  const out: TaxoNode[] = [];
+  for (const n of nodes) { out.push(n); if (n.children) out.push(...flatten(n.children)); }
+  return out;
+}
+
+const raw = execFileSync('python3', [path.join(__dirname, 'extract_vault_schema.py')], { encoding: 'utf-8' });
+const extracted: Record<string, { name: string; type: string; required: boolean }[]> = JSON.parse(raw);
+
+let matched = 0, mismatched: string[] = [];
+for (const [taxoId, schema] of Object.entries(VAULT_SCHEMA)) {
+  const live = extracted[schema.table];
+  if (!live) { mismatched.push(`${taxoId}: table '${schema.table}' not found by extractor`); continue; }
+  const eq = JSON.stringify(live) === JSON.stringify(schema.columns);
+  if (eq) matched++; else mismatched.push(`${taxoId}: column mismatch vs live extraction`);
+}
+assert(mismatched.length === 0, `all ${Object.keys(VAULT_SCHEMA).length} VAULT_SCHEMA entries match the live extractor (${matched} matched, ${mismatched.length} mismatched)`);
+if (mismatched.length) mismatched.forEach(m => console.error(`    ${m}`));
+
+const storeVaultNames = flatten(TAXONOMY['store_vault'] ?? [])
+  .filter(n => n.kind === 'instance' && n.status !== 'dead' && !n.name.includes('.'))
+  .map(n => n.name);
+const unmatchedTaxo = storeVaultNames.filter(name => !Object.values(VAULT_SCHEMA).some(s => s.table === name) && !extracted[name] === undefined && extracted[name] === undefined);
+console.log(`store_vault non-dead, non-column-note instances: ${storeVaultNames.length}; VAULT_SCHEMA entries: ${Object.keys(VAULT_SCHEMA).length}`);
+
+console.log('\n' + (failed ? 'vault_schema check FAILED.' : 'vault_schema check PASSED.'));
+if (failed) process.exit(1);
+```
+
+- [ ] **Step 5: Run the check**
+
+```bash
+npx tsx scripts/check_vault_schema.ts
+```
+
+Expected: `PASSED`, with a printed tally of `store_vault` instances vs. `VAULT_SCHEMA` entries (a
+sizable delta is expected and fine — not every taxonomy instance is a live, extractable table; retired
+`*`-suffixed and `.`-suffixed column-note entries are already excluded from the count, but some live
+instance names may still not match a `CREATE TABLE` the regex could parse — report, don't force).
+
+- [ ] **Step 6: Add `toposService.getVaultSchema`**
+
+`services/toposService.ts` — add alongside the existing `getTaxoIO`:
+
+```typescript
+// (add near the existing getTaxoIO import/export)
+import { VAULT_SCHEMA, type VaultTableSchema } from '../data/vault_schema';
+
+// ... inside the toposService object/class, alongside getTaxoIO:
+getVaultSchema(taxoId: string): VaultTableSchema | undefined {
+  return VAULT_SCHEMA[taxoId];
+},
+```
+
+(Match the exact existing export style in `toposService.ts` — object literal vs. class method — by
+reading the file first; `getTaxoIO`'s existing declaration is the template to mirror exactly.)
+
+- [ ] **Step 7: Build check**
+
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"   # expect 1
+npm run build 2>&1 | tail -5                  # expect ✓ built
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add scripts/extract_vault_schema.py data/vault_schema.ts scripts/check_vault_schema.ts services/toposService.ts
+git commit -m "topos: extract vault table schemas (columns+types) — self-checked, mirrors TAXO_IO"
+```
+
+---
+
+## Task 17: Render the DB-table schema block on vault instance cards
+
+**Files:**
+- Modify: `features/topos/components/CanvasPage.tsx` (`InstanceNode`, `taxoLeafNodesRF`)
+- Modify: `features/topos/lib/containerLayout.ts` (`instanceCellHeight`)
+
+**Interfaces:**
+- Extends `InstanceNodeData` with `schema?: VaultTableSchema`.
+
+- [ ] **Step 1: Extend `instanceCellHeight` for schema-bearing instances**
+
+`features/topos/lib/containerLayout.ts` — add a schema-row height export near `ENUM_ROW_H` (from Task
+15):
+
+```typescript
+export const SCHEMA_ROW_H = 24;   // column pills wrap ~2/row at TAXO_W=168; a slightly taller row than IO_ROW_H since "name: TYPE" runs longer than a bare param name
+export function schemaRowsExtraHeight(taxoId: string): number {
+  const schema = toposService.getVaultSchema(taxoId);
+  if (!schema || schema.columns.length === 0) return 0;
+  return Math.ceil(schema.columns.length / 2) * SCHEMA_ROW_H;
+}
+```
+
+```typescript
+// instanceCellHeight — before (post-Task-15 state)
+export function instanceCellHeight(taxoId: string): number {
+  const io = toposService.getTaxoIO(taxoId);
+  return TAXO_H.instance + ioRowsExtraHeight(ioRowCount(io)) + enumRowsExtraHeight(io);
+}
+// after
+export function instanceCellHeight(taxoId: string): number {
+  const io = toposService.getTaxoIO(taxoId);
+  return TAXO_H.instance + ioRowsExtraHeight(ioRowCount(io)) + enumRowsExtraHeight(io) + schemaRowsExtraHeight(taxoId);
+}
+```
+
+- [ ] **Step 2: Pass `schema` into `InstanceNode`'s data**
+
+`taxoLeafNodesRF` (post-Task-11 state) — add the schema lookup alongside the existing `io` lookup:
+
+```typescript
+// before (post-Task-11 state, instance branch)
+      return {
+        id: f.renderId, type: 'instance', position: { x: f.x, y: f.y },
+        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId), enterDelay } as InstanceNodeData,
+        zIndex: 2,
+      } as Node;
+// after
+      return {
+        id: f.renderId, type: 'instance', position: { x: f.x, y: f.y },
+        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId), schema: toposService.getVaultSchema(rt.taxoId), enterDelay } as InstanceNodeData,
+        zIndex: 2,
+      } as Node;
+```
+
+Add `schema?: VaultTableSchema` to `InstanceNodeData` (post-Task-11/15 state):
+
+```typescript
+// before
+type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO; enterDelay?: number };
+// after
+type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO; schema?: VaultTableSchema; enterDelay?: number };
+```
+
+Add the `VaultTableSchema` type import (alongside the existing `containerLayout` import block):
+
+```typescript
+import type { VaultTableSchema } from '../../../data/vault_schema';
+```
+
+- [ ] **Step 3: Render the schema block in `InstanceNode`**
+
+Extend the component (post-Task-6/11/15 state) to destructure `schema` and render a column-pill block
+whenever it's present, using the SAME `ClickablePill` from Task 15 (a column shows as `name: TYPE`,
+required columns get a filled-square prefix, nullable a hollow one — reusing `PortTerminal` from
+Task 6 for the terminal glyph):
+
+```typescript
+// before (destructure line, post-Task-11 state)
+  const { name, color, status, selected, opacity, seq, io, enterDelay } = data as unknown as InstanceNodeData;
+// after
+  const { name, color, status, selected, opacity, seq, io, schema, enterDelay } = data as unknown as InstanceNodeData;
+```
+
+Insert the schema block after the existing IO-rows block (post-Task-6/11/15's closing `)}` for the `{rows
+> 0 && (...)}` block), inside the same root `<div>`:
+
+```typescript
+      {schema && schema.columns.length > 0 && (
+        <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+          {schema.columns.map(col => (
+            <span key={col.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <PortTerminal kind={col.required ? 'required' : 'optional'} color={color} />
+              <ClickablePill text={`${col.name}: ${col.type}`} color={color} />
+            </span>
+          ))}
+        </div>
+      )}
+```
+
+- [ ] **Step 4: Build check**
+
+```bash
+npx tsc --noEmit 2>&1 | grep -c "error TS"   # expect 1
+npm run build 2>&1 | tail -5                  # expect ✓ built
+npx tsx scripts/check_container_layout.ts     # expect PASSED
+```
+
+- [ ] **Step 5: Puppeteer screenshot**
+
+Expand `store_vault`'s core family (`vault_items`, `vault_focuses`, etc.). Confirm `vault_items` (if
+`items` matched during Task 16 extraction) now shows a column-pill block below its name — table columns
+with `name: TYPE`, required columns marked with a filled terminal, nullable with a hollow one — and the
+cell has grown tall enough that pills don't overflow the card (masonry from Task 8 should size it
+correctly via the Step-1 `instanceCellHeight` update).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add features/topos/components/CanvasPage.tsx features/topos/lib/containerLayout.ts
+git commit -m "topos: render DB-table schema block (columns+types) on vault instance cards"
+```
+
+---
+
+## Amendment Final Verification (add to the Final Wave Verification checklist below)
+
+- [ ] `npx tsx scripts/check_grid_snap.ts` → PASSED
+- [ ] `npx tsx scripts/check_vault_schema.ts` → PASSED
+- [ ] Puppeteer: sampled node bounding boxes are 24px-grid-aligned (position AND size); edges show 45°
+  chamfered corners; `update_focus`'s enum params show clickable pills; `vault_items` shows a
+  column-pill schema block.
+
+---
+
 ## Final Wave Verification (run once, after all 12 tasks are merged to a single branch/worktree)
 
 - [ ] `npx tsc --noEmit 2>&1 | grep -c "error TS"` → `1` (only the pre-existing netlify error)
