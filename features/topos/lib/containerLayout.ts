@@ -71,7 +71,7 @@ export function ioRowsExtraHeight(io?: TaxoIO): number {
 // An input with `enumValues` grows a 2-column pill grid beneath its row (see InstanceNode /
 // ClickablePill in CanvasPage.tsx). ENUM_ROW_H=18 (not IO_ROW_H's 16) — a ClickablePill has its
 // own border+padding and needs a little more slack than a plain TaxoIOChip row.
-export const ENUM_ROW_H = 18;
+export const ENUM_ROW_H = 24;   // per enum-grid row: pill ~16 + grid gap 3 + wrapper gap + slack — budget must cover the CSS gaps or 2-line enum params overflow (D-004 class; parity with SCHEMA_ROW_H)
 /** Extra height (beyond ioRowsExtraHeight) for any input's enum-pill grid — ceil(n/2) rows per
  * enum-bearing input, matching the 2-column grid `InstanceNode` renders EXACTLY (budget >= render,
  * the D-004 lesson: countable rows, not flex-wrap guesswork). */

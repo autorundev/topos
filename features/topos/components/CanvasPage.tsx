@@ -442,12 +442,13 @@ function TaxoIOChip({ label, kind, color }: { label: string; kind: 'required' | 
 // PillContext), which (a) highlights every pill/chip sharing the same text across the whole graph
 // and (b) opens a PillInspector panel listing where else that value occurs. Clicking the already-
 // active value again clears it. `mono=false` is used for enum values (Cyrillic-friendly Sans).
-function ClickablePill({ text, color, mono = true }: { text: string; color: string; mono?: boolean }) {
+function ClickablePill({ text, value, color, mono = true }: { text: string; value?: string; color: string; mono?: boolean }) {
   const { active, onActivate } = React.useContext(PillContext);
-  const on = active === text;
+  const key = value ?? text;   // the match/activate KEY (e.g. a DB column pill shows "name: TYPE" but keys on the bare column name so it cross-links with same-named params/columns)
+  const on = active === key;
   return (
     <button
-      onClick={(e) => { e.stopPropagation(); onActivate(text); }}
+      onClick={(e) => { e.stopPropagation(); onActivate(key); }}
       title={`${text} — показать где ещё`}
       style={{
         display: 'inline-flex', maxWidth: '100%', minWidth: 0, cursor: 'pointer',
@@ -483,7 +484,7 @@ function PillInspector({ value, onClose }: { value: string; onClose: () => void 
         }}>✕</button>
       </div>
       <div style={{ overflowY: 'auto', padding: '6px 10px', fontSize: 10, lineHeight: 1.6 }}>
-        {occurrences.length === 0 ? (
+        {occurrences.length <= 1 ? (
           <div style={{ opacity: 0.6 }}>только здесь</div>
         ) : (
           occurrences.map((o, i) => (
@@ -709,7 +710,7 @@ function InstanceNode({ data }: NodeProps) {
           {schema.columns.map(col => (
             <span key={col.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
               <PortTerminal kind={col.required ? 'required' : 'optional'} color={color} />
-              <ClickablePill text={`${col.name}: ${col.type}`} color={color} />
+              <ClickablePill text={`${col.name}: ${col.type}`} value={col.name} color={color} />
             </span>
           ))}
         </div>
