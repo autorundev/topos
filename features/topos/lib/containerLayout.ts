@@ -23,12 +23,12 @@ import { toposService } from '../../../services/toposService';
 import { taxoRenderId } from './visibleTaxo';
 
 // ── geometry constants — single source of truth, imported by CanvasPage.tsx for rendering ──
-export const TAXO_W = 156;
-export const TAXO_H: Record<TaxoKind, number> = { family: 40, instance: 34 };
-export const CONTAINER_HEADER_H = 40;    // header strip: icon/label + nature pill + touch chevron
-export const CONTAINER_GUTTER_W = 124;   // class-root only: port shape + IOChip column, each side
-export const CONTAINER_BODY_PAD = 14;    // header/gutter → first grid cell, and body → far edges
-export const CELL_GAP = 10;              // gap between grid cells, both axes
+export const TAXO_W = 168;
+export const TAXO_H: Record<TaxoKind, number> = { family: 40, instance: 32 };
+export const CONTAINER_HEADER_H = 48;    // header strip: icon/label + nature pill + touch chevron — outer-grid-facing (a class-root container's overall size feeds ELK)
+export const CONTAINER_GUTTER_W = 120;   // class-root only: port shape + IOChip column, each side
+export const CONTAINER_BODY_PAD = 16;    // header/gutter → first grid cell, and body → far edges
+export const CELL_GAP = 8;               // gap between grid cells, both axes
 const MAX_GRID_COLS = 4;
 
 // ── Step 2b: per-child I/O chip rows on an instance leaf card ──────────────────────────────
@@ -38,8 +38,8 @@ const MAX_GRID_COLS = 4;
 // convention, one level down). Exported so CanvasPage's InstanceNode component can render EXACTLY
 // the row count/height this module reserves in the grid — the two MUST agree, or leaf cards will
 // visually overlap their neighbours' grid slot.
-export const IO_ROW_H = 15;
-export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row
+export const IO_ROW_H = 16;
+export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row — a connective micro-gap, deliberately exempt from the 8px grid (like a border width)
 
 export function ioRowCount(io?: TaxoIO): number {
   if (!io) return 0;

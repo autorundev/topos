@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
-  ReactFlow, Background, Panel, Handle,
+  ReactFlow, Background, BackgroundVariant, Panel, Handle,
   BaseEdge,
   type Node, type Edge, type NodeProps, type EdgeProps, Position,
 } from '@xyflow/react';
@@ -24,8 +24,9 @@ import {
   IO_ROW_H, ioRowCount, ioRowsExtraHeight,
   type ContainerLayoutResult, type FlatContainerCell,
 } from '../lib/containerLayout';
+import { roundUp24, snapPositions } from '../lib/gridSnap';
 
-const NODE_W = 232;   // I/O chips stack as rows inside the card (grows height, not width)
+const NODE_W = 240;   // I/O chips stack as rows inside the card (grows height, not width) — 24px-grid-aligned
 type XY = { x: number; y: number };
 type Pos = Record<string, XY>;
 type EdgePts = Record<string, XY[]>;
@@ -37,7 +38,7 @@ const SIDE_POS: Record<Side, Position> = { EAST: Position.Right, WEST: Position.
 // left→right pipeline: inbound → internal → outbound. ELK partitions keep zones apart.
 const LAYER_ORDER: Record<string, number> = { layer_inbound: 0, layer_internal: 1, layer_outbound: 2 };
 // SAFE ZONE — clearance ELK keeps between any edge and a node it does NOT connect to.
-const SAFE_ZONE = 34;
+const SAFE_ZONE = 24;
 
 const EDGE_COLOR: Record<string, string> = {
   writes_to: '#59708a', reads_from: '#3fb6c9', reduces: '#7a5cc4', wakes: '#e6a63c',
@@ -130,10 +131,10 @@ const TOUCHPOINT_CAT: Record<string, string> = {
   conversational: 'диалог', screen_interface: 'экран', voice_audio: 'голос',
   technical: 'тех', spatial_computing: 'spatial', physical_devices: 'девайсы',
 };
-const ITEM_W = 174, ITEM_H = 54, ITEM_GX = 16, ITEM_GY = 14, BAND_LABEL = 30, BAND_PAD = 16, BAND_GAP = 66;
+const ITEM_W = 168, ITEM_H = 48, ITEM_GX = 24, ITEM_GY = 24, BAND_LABEL = 24, BAND_PAD = 24, BAND_GAP = 72;
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
-const ROW_H = 34;   // one input/output row — tall enough for a 2-line chip
+const ROW_H = 32;   // one input/output row — tall enough for a 2-line chip
 // family-badge count on the det_detectors header — taxonomy-derived (real family list), not a
 // parsed common_variants string. Only det_detectors shows this header strip (unchanged scope);
 // see toposService.getTaxonomy('det_detectors') for the source of truth.
@@ -182,12 +183,12 @@ const ELK_OPTS = {
   'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
-  'elk.spacing.nodeNode': '58',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '150',
+  'elk.spacing.nodeNode': '48',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '144',
   'elk.spacing.edgeNode': String(SAFE_ZONE),            // ← safe zone: edge ↔ foreign node
   'elk.layered.spacing.edgeNodeBetweenLayers': String(SAFE_ZONE),
-  'elk.spacing.edgeEdge': '16',
-  'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+  'elk.spacing.edgeEdge': '24',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': '24',
   'elk.spacing.portPort': '13',
 };
 
@@ -235,13 +236,14 @@ async function computeLayout(
       // reconcile the pure grid size with the row-height the class's OWN flow ports need — a
       // class can have more I/O ports than grid rows (or vice versa).
       const portsH = cl.header + rows * ROW_H + 6;
-      const h = Math.max(cl.size.h, portsH);
-      containerLayouts[t.id] = h === cl.size.h ? cl : { ...cl, size: { w: cl.size.w, h } };
-      widths[t.id] = cl.size.w;
+      const h = roundUp24(Math.max(cl.size.h, portsH));
+      const w = roundUp24(cl.size.w);
+      containerLayouts[t.id] = (h === cl.size.h && w === cl.size.w) ? cl : { ...cl, size: { w, h } };
+      widths[t.id] = w;
       heights[t.id] = h;
     } else {
-      widths[t.id] = NODE_W;
-      heights[t.id] = headerH(t) + rows * ROW_H + 6;
+      widths[t.id] = roundUp24(NODE_W);
+      heights[t.id] = roundUp24(headerH(t) + rows * ROW_H + 6);
     }
   });
   // header height ELK ports must align to: the container header for an expanded class, else the
@@ -295,21 +297,24 @@ async function computeLayout(
     edges: edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
   };
   const res: any = await elk.layout(pass2 as any);
-  const pos: Pos = {};
+  const rawPos: Pos = {};
   const handles: Handles = {};
   (res.children ?? []).forEach((c: any) => {
-    pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
+    rawPos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
     (c.ports ?? []).forEach((p: any) => {
       const side = (p.layoutOptions?.['elk.port.side'] ?? 'EAST') as Side;
       (handles[c.id] ??= []).push({ id: p.id, kind: p.id.endsWith('__s') ? 'source' : 'target', side, x: p.x ?? 0, y: p.y ?? 0 });
     });
   });
-  const pts: EdgePts = {};
+  const rawPts: EdgePts = {};
   (res.edges ?? []).forEach((e: any) => {
     const sec = e.sections?.[0];
     if (!sec) return;
-    pts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
+    rawPts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
   });
+  const edgeEndpoints: Record<string, { source: string; target: string }> = {};
+  edges.forEach(e => { edgeEndpoints[e.id] = { source: e.source, target: e.target }; });
+  const { pos, pts } = snapPositions({ pos: rawPos, pts: rawPts, edgeEndpoints });
   return { pos, pts, handles, heights, widths, containerLayouts };
 }
 
@@ -789,7 +794,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
   const zoneNodes: Node[] = useMemo(() => {
     if (!pos) return [];
-    const PAD = 46, TOP = 34;
+    const PAD = 48, TOP = 24;
     return layers.map((layer) => {
       const members = tasks.filter(t => t.layer_id === layer.id && pos[t.id]);
       if (!members.length) return null;
@@ -803,7 +808,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       return {
         id: `zone_${layer.id}`, type: 'zone', position: { x: minX, y: minY },
         data: { label: layer.name, role: layer.role, color: clusterColorFor(layer.slug as ClusterSlug, isDark) },
-        style: { width: maxX - minX, height: maxY - minY }, draggable: false, selectable: false, zIndex: -1,
+        style: { width: roundUp24(maxX - minX), height: roundUp24(maxY - minY) }, draggable: false, selectable: false, zIndex: -1,
       } as Node;
     }).filter(Boolean) as Node[];
   }, [layers, tasks, pos, heights, widths, isDark]);
@@ -943,7 +948,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       });
     });
     const h = BAND_LABEL + rows * (ITEM_H + ITEM_GY) - ITEM_GY + BAND_PAD;
-    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 22, y: maxY + BAND_GAP - 6 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: bandW + 44, height: h + 12 }, draggable: false, selectable: false, zIndex: -1 } as Node);
+    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 24, y: maxY + BAND_GAP - 8 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: roundUp24(bandW + 48), height: roundUp24(h + 16) }, draggable: false, selectable: false, zIndex: -1 } as Node);
     return { zones, items };
   }, [pos, heights, widths, tasks, constraints]);
 
@@ -1038,7 +1043,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         onNodeClick={onNodeClick} onPaneClick={() => { setSelected(null); setSelItem(null); setSelTaxo(null); }}
         fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.2} proOptions={{ hideAttribution: true }}
       >
-        <Background gap={22} color={isDark ? '#16202e' : '#dfe4ea'} />
+        <Background id="bg-grid" gap={24} size={1} offset={12} variant={BackgroundVariant.Dots} color={isDark ? '#1b2838' : '#dfe4ea'} />
 
         <Panel position="top-left">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 700 }}>
