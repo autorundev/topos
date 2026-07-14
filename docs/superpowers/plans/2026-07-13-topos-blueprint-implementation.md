@@ -725,6 +725,14 @@ git add data/palette.ts scripts/check_palette.ts features/topos/components/Canva
 git commit -m "topos: derived + validated nature/cluster color palette (light+dark)"
 ```
 
+> **Correction D-001 (applied 2026-07-14 during execution).** Step 5 items 5-8 make `brickNodes`
+> and `containerNodesRF` read `isDark` inside their `useMemo` bodies, but the original plan only
+> added `isDark` to the `taxoLeafNodesRF` (item 9) and `zoneNodes` (Step 6) deps arrays. Without it,
+> those two memos keep stale colors on a theme toggle. Fix: **also add `isDark` to the `brickNodes`
+> deps array (`}, [tasks, flowIds, …, containerLayouts, isDark]);`) and the `containerNodesRF` deps
+> array (`}, [containerFlat, taxoById, …, toggleTaxo, isDark]);`).** Committed separately as
+> `38fecaa`. See `docs/superpowers/DIVERGENCES.md` D-001.
+
 ---
 
 ## Task 4: Blueprint substrate — grid, registration ticks, title block, vignette
