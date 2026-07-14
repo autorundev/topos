@@ -1208,6 +1208,20 @@ one it will see taller effective rows and size cells accordingly. If Task 8 alre
 `IO_ROW_H` constant still gives enough single-line headroom — 2-line wraps are the exception (long
 labels only), most chips stay single-line at `IO_ROW_H=15`.)
 
+> **Correction D-003 + D-004 (applied 2026-07-14 during execution).** The note above under-estimated
+> the wrap fallout — visual review found two real defects that the plan-as-written shipped:
+> 1. **D-004 (overflow):** `minHeight` on the ROW is not enough — the instance CARD height is a literal
+>    value from `instanceCellHeight`, which budgeted a flat `IO_ROW_H` per row and did NOT grow for
+>    2-line rows, so wrapped chips (15/~120 cards) spilled ~9-11px past the card border. Task 8 does NOT
+>    fix this (it packs by `instanceCellHeight`, so the fix must precede it). **Fix:** `ioRowsExtraHeight`
+>    takes `(io?: TaxoIO)` and adds `IO_LINE_EXTRA=12` for any row whose input OR output label length
+>    `> IO_WRAP_CHARS=11`; `WebkitLineClamp:2` caps rendered at 2 lines so budget ≥ rendered by
+>    construction. Update BOTH call sites (`instanceCellHeight` and `InstanceNode`'s own `height`).
+> 2. **D-003 (mid-word break):** `justify-content:space-between` let a wide output chip squeeze a short
+>    input label below its text width, breaking it mid-word. **Fix:** row → `display:grid;
+>    gridTemplateColumns:'1fr 1fr'`; `TaxoIOChip maxWidth 118 → '100%'`.
+> See `docs/superpowers/DIVERGENCES.md` D-003/D-004.
+
 - [ ] **Step 3: Extend the ports legend**
 
 Lines 1079-1083 (the existing "ПОРТЫ" legend section in the top-right `Panel`) — add a line for the

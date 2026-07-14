@@ -30,3 +30,26 @@ Each entry: what was found, evidence, the fix, and where it was folded back.
   top-level nodes now `%24===0`, band at `(24, 1080)`, 0 console errors. Committed as a follow-up on
   branch `blueprint`.
 - **Folded back:** plan Task 13 Step 8 (band push line) — see correction note there.
+
+## D-003 — short input label breaks mid-word (Task 6)
+- **Found:** Batch 4 adversarial visual review. `InstanceNode`'s I/O row used `display:flex;
+  justify-content:space-between` with both sides `minWidth:0`. A short input label sharing a row with
+  a wide output chip got squeezed below its text width and broke mid-word (`type` → "typ"/"e") due to
+  `overflowWrap:anywhere` + line-clamp.
+- **Fix:** row → `display:grid; gridTemplateColumns:'1fr 1fr'` (each side a fixed half, no contention);
+  `TaxoIOChip maxWidth 118 → '100%'` (chip constrained to its grid cell). Re-verified: 0 horizontal
+  overflow across 325 cards.
+- **Folded back:** plan Task 6 Step 2 (correction note).
+
+## D-004 — I/O chip content overflows instance card (Task 6 height budget)
+- **Found:** Batch 4 adversarial visual review — 15/~120 instance cards spilled I/O-chip content
+  ~9-11px past their card's bottom border. Cause: `ioRowsExtraHeight` budgeted a flat `IO_ROW_H` per
+  row, but Task 6's 2-line-wrapping chips render taller; budgeted < rendered.
+- **Fix:** `ioRowsExtraHeight` now takes `(io?: TaxoIO)` and adds `IO_LINE_EXTRA=12` for any row whose
+  input OR output label length > `IO_WRAP_CHARS=11` (rows that can wrap). `WebkitLineClamp:2` caps
+  rendered at 2 lines, so budget >= rendered by construction. `instanceCellHeight` +
+  `InstanceNode.height` both derive from the same function. Re-verified live: 0 vertical overflow
+  across 325 fully-expanded cards (was 15).
+- **Note:** Task 8 (masonry) packs cells by `instanceCellHeight`, so this fix had to land BEFORE
+  Task 8 for the packer to see correct heights.
+- **Folded back:** plan Task 6 Step 2 (correction note).
