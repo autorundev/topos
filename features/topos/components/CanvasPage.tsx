@@ -534,7 +534,7 @@ function TouchChevron({ color, expanded, onToggle, glyph = 16, hit = 32 }: { col
         WebkitTapHighlightColor: 'transparent',
       }}
     >
-      <span aria-hidden style={{
+      <span aria-hidden className="topos-chevron-glyph" style={{
         width: glyph, height: glyph, boxSizing: 'border-box',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         borderRadius: 6, border: `1.3px solid ${color}66`, background: `${color}22`, color,

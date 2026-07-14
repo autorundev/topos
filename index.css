@@ -123,3 +123,12 @@ button:disabled {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   cursor: pointer;
 }
+
+/* Chevron press feedback: the inner glyph scales down on press (the outer button is transparent, so
+   :active on it wouldn't register visually). */
+.topos-chevron-glyph {
+  transition: transform 120ms var(--ease-out);
+}
+.topos-chevron-glyph:active {
+  transform: scale(0.88);
+}
