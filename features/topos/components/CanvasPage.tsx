@@ -17,11 +17,13 @@ import { TOPOS_DATA } from '../../../data';
 import { natureColorFor, clusterColorFor, type ClusterSlug } from '../../../data/palette';
 import { useDarkMode } from '../../../hooks/useDarkMode';
 import type { Task, IOItem, NodeCategory, NodeNature, NodeStatus, TaxoIO } from '../../../types';
+import type { VaultTableSchema } from '../../../data/vault_schema';
 import { visibleTaxo, type TaxoRender } from '../lib/visibleTaxo';
 import {
   containerLayout, flattenContainerLayout,
   TAXO_W, TAXO_H, CONTAINER_HEADER_H,
   IO_ROW_H, ioRowCount, ioRowsExtraHeight, enumRowsExtraHeight,
+  SCHEMA_ROW_H, schemaRowsExtraHeight,
   type ContainerLayoutResult, type FlatContainerCell,
 } from '../lib/containerLayout';
 import { roundUp24, snapTo24, snapPositions } from '../lib/gridSnap';
@@ -644,16 +646,22 @@ function FamilyNode({ id, data }: NodeProps) {
     </div>
   );
 }
-type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO };
+type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO; schema?: VaultTableSchema };
 function InstanceNode({ data }: NodeProps) {
-  const { name, color, status, selected, opacity, seq, io } = data as unknown as InstanceNodeData;
+  const { name, color, status, selected, opacity, seq, io, schema } = data as unknown as InstanceNodeData;
   const dead = status === 'dead';
   // Step 2b: a leaf with TAXO_IO (tools + detectors) shows its OWN ports as chip rows below the
   // name — input left / output right, one row per max(inputs, outputs) — replacing reliance on
   // the container's aggregate gutters for that child. Height MUST match containerLayout's
   // instanceCellHeight (same ioRowCount/ioRowsExtraHeight fns) or the grid misaligns.
   const rows = ioRowCount(io);
-  const height = TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io);
+  // Task 17: a vault instance's DB-table schema block adds ceil(cols/2) rows on top of IO/enum
+  // rows. InstanceNode only receives the RESOLVED `schema` (not the raw taxoId), so the row count
+  // is derived straight from `schema.columns.length` here — this MUST equal what
+  // containerLayout's `schemaRowsExtraHeight(taxoId)` budgets from the SAME underlying data
+  // (toposService.getVaultSchema(taxoId)), or the grid misaligns (the D-004 lesson).
+  const schemaExtra = schema && schema.columns.length > 0 ? Math.ceil(schema.columns.length / 2) * SCHEMA_ROW_H : 0;
+  const height = TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io) + schemaExtra;
   const ins = io?.inputs ?? [];
   const outs = io?.outputs ?? [];
   return (
@@ -693,6 +701,16 @@ function InstanceNode({ data }: NodeProps) {
                 </div>
               )}
             </div>
+          ))}
+        </div>
+      )}
+      {schema && schema.columns.length > 0 && (
+        <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+          {schema.columns.map(col => (
+            <span key={col.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
+              <PortTerminal kind={col.required ? 'required' : 'optional'} color={color} />
+              <ClickablePill text={`${col.name}: ${col.type}`} color={color} />
+            </span>
           ))}
         </div>
       )}
@@ -1042,7 +1060,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       }
       return {
         id: f.renderId, type: 'instance', position: { x: f.x, y: f.y },
-        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId) } as InstanceNodeData,
+        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId), schema: toposService.getVaultSchema(rt.taxoId) } as InstanceNodeData,
         zIndex: 2,
       } as Node;
     }).filter(Boolean) as Node[];

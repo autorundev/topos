@@ -80,11 +80,25 @@ export function enumRowsExtraHeight(io?: TaxoIO): number {
   return io.inputs.reduce((h, i) => h + (i.enumValues?.length ? Math.ceil(i.enumValues.length / 2) * ENUM_ROW_H : 0), 0);
 }
 
-/** Full instance-cell height including any I/O rows + enum-pill rows. `taxoId` is the RAW
- * TaxoNode id (TAXO_IO's key), not the classId-namespaced render id. */
+// ── Task 17 (vault DB-table schema block) ──────────────────────────────────────────────────
+// A vault instance whose taxoId resolves to a VAULT_SCHEMA entry (Task 16) grows a 2-column
+// column-pill grid beneath its IO/enum rows (see InstanceNode in CanvasPage.tsx). SCHEMA_ROW_H=24
+// (taller than ENUM_ROW_H's 18) — "name: TYPE" pills run longer than a bare enum value.
+export const SCHEMA_ROW_H = 24;
+/** Extra height (beyond ioRowsExtraHeight + enumRowsExtraHeight) for a vault instance's DB-table
+ * schema block — ceil(columns/2) rows, matching the 2-column grid `InstanceNode` renders EXACTLY
+ * (budget >= render, the D-004 lesson: countable grid rows, not flex-wrap guesswork). */
+export function schemaRowsExtraHeight(taxoId: string): number {
+  const schema = toposService.getVaultSchema(taxoId);
+  if (!schema || schema.columns.length === 0) return 0;
+  return Math.ceil(schema.columns.length / 2) * SCHEMA_ROW_H;
+}
+
+/** Full instance-cell height including any I/O rows + enum-pill rows + DB-table schema rows.
+ * `taxoId` is the RAW TaxoNode id (TAXO_IO's key), not the classId-namespaced render id. */
 export function instanceCellHeight(taxoId: string): number {
   const io = toposService.getTaxoIO(taxoId);
-  return TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io);
+  return TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io) + schemaRowsExtraHeight(taxoId);
 }
 
 export interface ContainerCell {
