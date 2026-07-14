@@ -621,11 +621,11 @@ function BrickNode({ data }: NodeProps) {
   );
 }
 // ---- detail-hierarchy (drill-down) nodes: compact family/instance cards, attach via `contains` ----
-type FamilyNodeData = { name: string; childCount: number; color: string; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number };
+type FamilyNodeData = { name: string; childCount: number; color: string; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number; enterDelay?: number };
 function FamilyNode({ id, data }: NodeProps) {
-  const { name, childCount, color, expanded, hasChildren, onToggle, selected, opacity } = data as unknown as FamilyNodeData;
+  const { name, childCount, color, expanded, hasChildren, onToggle, selected, opacity, enterDelay } = data as unknown as FamilyNodeData;
   return (
-    <div className="rf-brick" style={{
+    <div className="rf-brick topos-enter" style={{ transitionDelay: enterDelay ? `${enterDelay}ms` : undefined,
       position: 'relative', width: TAXO_W, height: TAXO_H.family, boxSizing: 'border-box', borderRadius: 8, border: `1.3px solid ${color}`,
       background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5,
@@ -647,9 +647,9 @@ function FamilyNode({ id, data }: NodeProps) {
     </div>
   );
 }
-type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO; schema?: VaultTableSchema };
+type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO; schema?: VaultTableSchema; enterDelay?: number };
 function InstanceNode({ data }: NodeProps) {
-  const { name, color, status, selected, opacity, seq, io, schema } = data as unknown as InstanceNodeData;
+  const { name, color, status, selected, opacity, seq, io, schema, enterDelay } = data as unknown as InstanceNodeData;
   const dead = status === 'dead';
   // Step 2b: a leaf with TAXO_IO (tools + detectors) shows its OWN ports as chip rows below the
   // name — input left / output right, one row per max(inputs, outputs) — replacing reliance on
@@ -666,7 +666,7 @@ function InstanceNode({ data }: NodeProps) {
   const ins = io?.inputs ?? [];
   const outs = io?.outputs ?? [];
   return (
-    <div className="rf-brick" style={{
+    <div className="rf-brick topos-enter" style={{ transitionDelay: enterDelay ? `${enterDelay}ms` : undefined,
       width: TAXO_W, height, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
       background: `linear-gradient(180deg, ${color}18, ${color}09), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', flexDirection: 'column', cursor: 'pointer',
@@ -1032,6 +1032,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const nature = rt?.nature ?? 'code';
       return {
         id: f.renderId, type: 'container', ...base,
+        className: 'topos-enter',
         data: {
           variant: 'family', label: rt?.name ?? f.renderId, nature, color: natureColorFor(nature, isDark), opacity,
           selected: selTaxo?.id === f.renderId, onToggle: toggleTaxo,
@@ -1045,23 +1046,24 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   // Leaf cells (collapsed-family or instance cards) inside any expanded container, at their
   // absolute canvas position — reuse the existing FamilyNode/InstanceNode components as-is.
   const taxoLeafNodesRF: Node[] = useMemo(() => {
-    return containerFlat.filter(f => f.kind !== 'container').map(f => {
+    return containerFlat.filter(f => f.kind !== 'container').map((f, i) => {
       const rt = taxoById.get(f.renderId);
       if (!rt) return null;
       const classId = f.renderId.split('::')[0];
       const opacity = classOpacity(classId);
       const isSel = selTaxo?.id === f.renderId;
       const color = natureColorFor(rt.nature, isDark);
+      const enterDelay = Math.min(i, 7) * 45;
       if (f.kind === 'family') {
         return {
           id: f.renderId, type: 'family', position: { x: f.x, y: f.y },
-          data: { name: rt.name, childCount: rt.childCount, color, expanded: expanded.has(f.renderId), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity } as FamilyNodeData,
+          data: { name: rt.name, childCount: rt.childCount, color, expanded: expanded.has(f.renderId), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity, enterDelay } as FamilyNodeData,
           zIndex: 2,
         } as Node;
       }
       return {
         id: f.renderId, type: 'instance', position: { x: f.x, y: f.y },
-        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId), schema: toposService.getVaultSchema(rt.taxoId) } as InstanceNodeData,
+        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId), schema: toposService.getVaultSchema(rt.taxoId), enterDelay } as InstanceNodeData,
         zIndex: 2,
       } as Node;
     }).filter(Boolean) as Node[];
