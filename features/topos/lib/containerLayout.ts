@@ -41,17 +41,36 @@ const MAX_GRID_COLS = 4;
 export const IO_ROW_H = 16;
 export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row — a connective micro-gap, deliberately exempt from the 8px grid (like a border width)
 
+// A 2-line-wrapped I/O chip adds this over a single-line row's IO_ROW_H. WebkitLineClamp:2 caps a
+// chip at 2 lines, so reserving one extra line for any row whose label CAN wrap keeps the budgeted
+// height ALWAYS >= the rendered height (D-004 fix — a flat 1-line budget overflowed the card border).
+export const IO_LINE_EXTRA = 12;
+// A chip wraps when its label exceeds one line of its ~half-card column. Instance card TAXO_W=168,
+// I/O body split into two ~76px grid columns → ~54px text width → ~11 mono glyphs at fontSize 7.5.
+// Threshold kept conservative (11) so budgeted >= rendered; over-budget only adds slack.
+export const IO_WRAP_CHARS = 11;
+
 export function ioRowCount(io?: TaxoIO): number {
   if (!io) return 0;
   return Math.max(io.inputs?.length ?? 0, io.outputs?.length ?? 0);
 }
-export function ioRowsExtraHeight(rows: number): number {
-  return rows > 0 ? IO_ROW_PAD + rows * IO_ROW_H : 0;
+function ioRowTall(io: TaxoIO, r: number): boolean {
+  const inLen = io.inputs?.[r]?.name?.length ?? 0;
+  const outLen = io.outputs?.[r]?.length ?? 0;
+  return inLen > IO_WRAP_CHARS || outLen > IO_WRAP_CHARS;
+}
+/** Extra height (beyond TAXO_H.instance) for a leaf's I/O rows, counting 2-line-wrapped rows. */
+export function ioRowsExtraHeight(io?: TaxoIO): number {
+  const rows = ioRowCount(io);
+  if (rows === 0 || !io) return 0;
+  let h = IO_ROW_PAD;
+  for (let r = 0; r < rows; r++) h += IO_ROW_H + (ioRowTall(io, r) ? IO_LINE_EXTRA : 0);
+  return h;
 }
 /** Full instance-cell height including any I/O rows. `taxoId` is the RAW TaxoNode id (TAXO_IO's
  * key), not the classId-namespaced render id. */
 export function instanceCellHeight(taxoId: string): number {
-  return TAXO_H.instance + ioRowsExtraHeight(ioRowCount(toposService.getTaxoIO(taxoId)));
+  return TAXO_H.instance + ioRowsExtraHeight(toposService.getTaxoIO(taxoId));
 }
 
 export interface ContainerCell {

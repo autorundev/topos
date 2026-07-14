@@ -413,7 +413,7 @@ function PortTerminal({ kind, color }: { kind: 'required' | 'optional' | 'output
 function TaxoIOChip({ label, kind, color }: { label: string; kind: 'required' | 'optional' | 'output'; color: string }) {
   return (
     <span title={label} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 118, minWidth: 0,
+      display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', minWidth: 0,
       border: `1px solid ${color}`, background: `${color}1f`, color,
       borderRadius: 4, padding: '2px 5px', fontFamily: 'var(--font-mono)', fontSize: 7.5, lineHeight: 1.25,
     }}>
@@ -584,7 +584,7 @@ function InstanceNode({ data }: NodeProps) {
   // the container's aggregate gutters for that child. Height MUST match containerLayout's
   // instanceCellHeight (same ioRowCount/ioRowsExtraHeight fns) or the grid misaligns.
   const rows = ioRowCount(io);
-  const height = TAXO_H.instance + ioRowsExtraHeight(rows);
+  const height = TAXO_H.instance + ioRowsExtraHeight(io);
   const ins = io?.inputs ?? [];
   const outs = io?.outputs ?? [];
   return (
@@ -613,7 +613,7 @@ function InstanceNode({ data }: NodeProps) {
       {rows > 0 && (
         <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px' }}>
           {Array.from({ length: rows }).map((_, r) => (
-            <div key={r} style={{ minHeight: IO_ROW_H, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+            <div key={r} style={{ minHeight: IO_ROW_H, display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'start', gap: 4 }}>
               <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} kind={ins[r].required ? 'required' : 'optional'} color={color} />}</span>
               <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} kind="output" color={color} />}</span>
             </div>
