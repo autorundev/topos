@@ -143,7 +143,15 @@ const famCountOf = (t: Task) => t.id === 'det_detectors' ? toposService.getTaxon
 function headerH(t: Task): number {
   const famRows = famCountOf(t) ? Math.ceil(famCountOf(t) / 2) : 0;
   const badges = (BADGES[t.id] ?? []).length ? 20 : 0;
-  return 58 + famRows * 20 + badges;
+  return 70 + famRows * 20 + badges;   // +12 vs. pre-Blueprint base — reserves the part-id caption line
+}
+
+// small mono caption under a card's title — mechanically derived (kind + taxonomy child count when
+// present), never hand-curated, so it stays correct for all ~40 classes without a new dataset.
+function partId(t: Task): string {
+  const { kind } = kindOf(t);
+  const n = toposService.getTaxonomy(t.id).length;
+  return n > 0 ? `${kind} · ${n}` : kind;
 }
 
 // ═══════════════ detail-hierarchy (drill-down) node geometry + status palette ═══════════════
@@ -459,7 +467,9 @@ function BrickNode({ data }: NodeProps) {
       position: 'relative', width: NODE_W, minHeight: minH, boxSizing: 'border-box', borderRadius: 11, border: `1.5px solid ${color}`,
       background: `linear-gradient(180deg, ${color}22, ${color}0f), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', opacity, transition: 'opacity .2s, box-shadow .12s, transform .12s',
-      boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
+      boxShadow: selected
+        ? `inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)`
+        : 'inset 0 1px 0 rgba(255,255,255,.06), 0 10px 22px -14px rgba(0,0,0,.7)',
     }}>
       {/* port shapes on the border: ◇ output right, ▷ input left — aligned to the I/O rows below */}
       {handles.map((h) => (<PortShape key={h.id} h={h} />))}
@@ -486,6 +496,7 @@ function BrickNode({ data }: NodeProps) {
             the pre-Step-1 full-width title. nowrap+ellipsis guards against ever wrapping to a 2nd
             line, which headerH() does not budget for. */}
         <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.name}</div>
+        <div style={{ fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.5, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{partId(task)}</div>
         {families.length > 0 && (
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
             {families.map(f => {
@@ -606,10 +617,11 @@ type ContainerNodeData = {
   catLabel?: string; icon?: React.ComponentType<{ size?: number }>;
   handles?: PortHandle[];
   childCount?: number;
+  partId?: string;
 };
 function ContainerNode({ id, data }: NodeProps) {
   const d = data as unknown as ContainerNodeData;
-  const { variant, label, nature, color, opacity, selected, onToggle, headerH: hH, gutterL, gutterR, w, h, handles, childCount } = d;
+  const { variant, label, nature, color, opacity, selected, onToggle, headerH: hH, gutterL, gutterR, w, h, handles, childCount, partId: pid } = d;
   const Icon = d.icon;
   const west = (handles ?? []).filter(hh => hh.side === 'WEST');
   const east = (handles ?? []).filter(hh => hh.side === 'EAST');
@@ -617,7 +629,9 @@ function ContainerNode({ id, data }: NodeProps) {
     <div style={{
       position: 'relative', width: w, height: h, boxSizing: 'border-box', borderRadius: 12,
       border: `1.5px dashed ${color}99`, background: `${color}0c`, opacity, transition: 'opacity .2s, box-shadow .12s',
-      boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
+      boxShadow: selected
+        ? `inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)`
+        : 'inset 0 1px 0 rgba(255,255,255,.05)',
     }}>
       <MembershipHandles />
       {variant === 'class' && handles && handles.map(hh => (<PortShape key={hh.id} h={hh} />))}
@@ -625,15 +639,20 @@ function ContainerNode({ id, data }: NodeProps) {
           (stopPropagation); a click anywhere else on the header/body bubbles to onNodeClick, same
           as clicking a collapsed card, and opens the DetailDrawer/TaxoDrawer for this node. */}
       <div style={{
-        height: hH, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6,
+        height: hH, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center',
         padding: '0 10px', borderBottom: `1px solid ${color}33`, background: `${color}16`,
         borderRadius: '11px 11px 0 0',
       }}>
-        {Icon && <span style={{ display: 'inline-flex', color, flex: '0 0 auto' }}><Icon size={13} /></span>}
-        <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: variant === 'class' ? 12.5 : 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</span>
-        {variant === 'family' && !!childCount && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
-        <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES_META[nature].short}</span>
-        <TouchChevron color={color} expanded onToggle={() => onToggle(id)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {Icon && <span style={{ display: 'inline-flex', color, flex: '0 0 auto' }}><Icon size={13} /></span>}
+          <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: variant === 'class' ? 12.5 : 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</span>
+          {variant === 'family' && !!childCount && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
+          <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES_META[nature].short}</span>
+          <TouchChevron color={color} expanded onToggle={() => onToggle(id)} />
+        </div>
+        {variant === 'class' && pid && (
+          <div style={{ fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.5, marginTop: 1 }}>{pid}</div>
+        )}
       </div>
       {/* L/R aggregate-port gutters — class root only; nested family containers carry no ports */}
       {variant === 'class' && (
@@ -885,7 +904,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
             variant: 'class', label: t.name, nature: natureOf(t.id), color, opacity,
             selected: selected?.id === t.id, onToggle: toggleTaxo,
             headerH: f.header ?? CONTAINER_HEADER_H, gutterL: f.gutterL ?? 0, gutterR: f.gutterR ?? 0, w: f.w, h: f.h,
-            catLabel: catLabel(t.id), icon: kindOf(t).icon,
+            catLabel: catLabel(t.id), icon: kindOf(t).icon, partId: partId(t),
             handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? color, label: portLabel[h.id] ?? '' })),
           } as ContainerNodeData,
         } as Node;
