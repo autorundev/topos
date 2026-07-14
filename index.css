@@ -117,11 +117,14 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Canvas brick nodes — subtle lift on hover */
-.rf-brick:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
+/* Canvas brick nodes — subtle lift on hover (fine-pointer only: Topos is touch-first, a touch tap
+   must not leave a stuck hover-lift behind) */
+@media (hover: hover) and (pointer: fine) {
+  .rf-brick:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+  }
 }
 
 /* Chevron press feedback: the inner glyph scales down on press (the outer button is transparent, so

@@ -632,7 +632,7 @@ function FamilyNode({ id, data }: NodeProps) {
       // reserve only the 16px chevron visual (+ gap), not a full 32px box — the tap area extends
       // invisibly over the ×N count / right edge, which is fine on a small leaf card.
       padding: hasChildren ? '0 26px 0 8px' : '0 8px', cursor: 'pointer',
-      opacity, transition: 'opacity .2s',
+      opacity, transition: 'opacity .22s var(--ease-out), transform .22s var(--ease-out), filter .22s var(--ease-out), box-shadow .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <MembershipHandles />
@@ -670,7 +670,7 @@ function InstanceNode({ data }: NodeProps) {
       width: TAXO_W, height, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
       background: `linear-gradient(180deg, ${color}18, ${color}09), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', flexDirection: 'column', cursor: 'pointer',
-      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .2s',   // dead-dim × focus-dim, stacked
+      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .22s var(--ease-out), transform .22s var(--ease-out), filter .22s var(--ease-out), box-shadow .12s',   // dead-dim × focus-dim, stacked
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <MembershipHandles />
@@ -812,7 +812,7 @@ function ItemNode({ data }: NodeProps) {
     <div className="rf-brick" style={{
       width: ITEM_W, boxSizing: 'border-box', borderRadius: 9, border: `1.5px solid ${color}`,
       background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
-      color: 'var(--text-main, #e6e9ee)', padding: '7px 9px', opacity: dim ? 0.22 : 1, transition: 'opacity .2s, box-shadow .12s',
+      color: 'var(--text-main, #e6e9ee)', padding: '7px 9px', opacity: dim ? 0.22 : 1, transition: 'opacity .2s, box-shadow .12s, transform .12s var(--ease-out)',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
