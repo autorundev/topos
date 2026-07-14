@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { TAXONOMY } from '../data/taxonomy';
 import { TAXO_IO } from '../data/taxonomy_io';
+import { VAULT_SCHEMA, type VaultTableSchema } from '../data/vault_schema';
 
 export type RelationshipType = 'upstream' | 'downstream' | 'lateral' | 'conflict';
 
@@ -152,6 +153,15 @@ class ToposService {
    */
   getTaxoIO(taxoId: string): TaxoIO | undefined {
     return TAXO_IO[taxoId];
+  }
+
+  /**
+   * DB-table schema (columns + types) for a taxonomy instance id under store_vault —
+   * extracted from ~/vectoros via scripts/extract_vault_schema.py into data/vault_schema.ts.
+   * Returns undefined when the instance has no matching live table.
+   */
+  getVaultSchema(taxoId: string): VaultTableSchema | undefined {
+    return VAULT_SCHEMA[taxoId];
   }
 
   /** Depth-first flatten of a taxonomy tree, including every descendant (families + instances). */
