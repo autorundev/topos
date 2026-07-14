@@ -138,10 +138,14 @@ def extract_tools(schemas_path: Path) -> dict[str, dict]:
             input_schema = tool.get("input_schema", {}) or {}
             properties = input_schema.get("properties", {}) or {}
             required = set(input_schema.get("required", []) or [])
-            inputs = [
-                {"name": prop_name, "required": prop_name in required}
-                for prop_name in properties.keys()
-            ]
+            inputs = []
+            for prop_name in properties.keys():
+                prop_schema = properties.get(prop_name) or {}
+                enum_vals = prop_schema.get("enum") if isinstance(prop_schema, dict) else None
+                entry: dict = {"name": prop_name, "required": prop_name in required}
+                if isinstance(enum_vals, list) and enum_vals:
+                    entry["enum"] = [str(v) for v in enum_vals]
+                inputs.append(entry)
             description = tool.get("description", "") or ""
             output_label = _derive_output_label(description)
             entry: dict = {"inputs": inputs}

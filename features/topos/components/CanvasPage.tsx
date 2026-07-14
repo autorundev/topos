@@ -21,10 +21,17 @@ import { visibleTaxo, type TaxoRender } from '../lib/visibleTaxo';
 import {
   containerLayout, flattenContainerLayout,
   TAXO_W, TAXO_H, CONTAINER_HEADER_H,
-  IO_ROW_H, ioRowCount, ioRowsExtraHeight,
+  IO_ROW_H, ioRowCount, ioRowsExtraHeight, enumRowsExtraHeight,
   type ContainerLayoutResult, type FlatContainerCell,
 } from '../lib/containerLayout';
 import { roundUp24, snapTo24, snapPositions } from '../lib/gridSnap';
+
+// Task 15-R (pill inspector): a click on any pill/chip value selects it — every pill/chip carrying
+// the SAME text, anywhere in the graph, gets a highlight ring, and a PillInspector panel opens
+// listing where else that value occurs (toposService.findValueOccurrences). Module-scope context
+// so ClickablePill/TaxoIOChip instances anywhere in the tree can read/toggle the single shared
+// `activeValue` without prop-drilling through every intermediate node component.
+const PillContext = React.createContext<{ active: string | null; onActivate: (text: string) => void }>({ active: null, onActivate: () => {} });
 
 const NODE_W = 240;   // I/O chips stack as rows inside the card (grows height, not width) — 24px-grid-aligned
 type XY = { x: number; y: number };
@@ -410,17 +417,79 @@ function PortTerminal({ kind, color }: { kind: 'required' | 'optional' | 'output
     }} />
   );
 }
+// Always-visible in-card param/output chip. NOT clickable (a card-chip click must still fall
+// through to node selection) — it only PARTICIPATES in the pill-inspector highlight (Task 15-R),
+// so clicking a ClickablePill elsewhere lights up every TaxoIOChip carrying the same text too.
 function TaxoIOChip({ label, kind, color }: { label: string; kind: 'required' | 'optional' | 'output'; color: string }) {
+  const { active } = React.useContext(PillContext);
+  const on = active === label;
   return (
     <span title={label} style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', minWidth: 0,
       border: `1px solid ${color}`, background: `${color}1f`, color,
       borderRadius: 4, padding: '2px 5px', fontFamily: 'var(--font-mono)', fontSize: 7.5, lineHeight: 1.25,
+      boxShadow: on ? `0 0 0 2px ${color}` : undefined,
     }}>
       {kind === 'output' ? null : <PortTerminal kind={kind} color={color} />}
       <span style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', overflowWrap: 'anywhere' }}>{label}</span>
       {kind === 'output' ? <PortTerminal kind={kind} color={color} /> : null}
     </span>
+  );
+}
+// Task 15-R: a pill click no longer copies to clipboard — it SELECTS a value (toggles it in
+// PillContext), which (a) highlights every pill/chip sharing the same text across the whole graph
+// and (b) opens a PillInspector panel listing where else that value occurs. Clicking the already-
+// active value again clears it. `mono=false` is used for enum values (Cyrillic-friendly Sans).
+function ClickablePill({ text, color, mono = true }: { text: string; color: string; mono?: boolean }) {
+  const { active, onActivate } = React.useContext(PillContext);
+  const on = active === text;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onActivate(text); }}
+      title={`${text} — показать где ещё`}
+      style={{
+        display: 'inline-flex', maxWidth: '100%', minWidth: 0, cursor: 'pointer',
+        border: `1px solid ${color}`, background: on ? `${color}44` : `${color}1f`, color,
+        boxShadow: on ? `0 0 0 2px ${color}` : undefined,
+        borderRadius: 4, padding: '2px 6px', fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+        fontSize: 9, lineHeight: 1.3, transition: 'background 150ms var(--ease-out), box-shadow 150ms var(--ease-out)',
+      }}
+    >
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+    </button>
+  );
+}
+// Task 15-R: opens when a ClickablePill/TaxoIOChip's value is active. Lists every OTHER place the
+// same value occurs (toposService.findValueOccurrences), pure data-scan, no model. Reuses the
+// drawer visual language (fixed corner card, mono, surface bg, 1px border, scroll body).
+function PillInspector({ value, onClose }: { value: string; onClose: () => void }) {
+  const occurrences = useMemo(() => toposService.findValueOccurrences(value), [value]);
+  return (
+    <div style={{
+      position: 'absolute', right: 16, bottom: 16, zIndex: 20, width: 260, maxHeight: 320,
+      display: 'flex', flexDirection: 'column',
+      background: 'var(--surface, #101826)', border: '1px solid var(--text-muted, #4a5568)',
+      borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,.5)', overflow: 'hidden',
+      fontFamily: 'var(--font-mono)', color: 'var(--text-main, #e6e9ee)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--text-muted, #4a5568)', flex: '0 0 auto' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{value}</span>
+        <span style={{ fontSize: 10, opacity: 0.6, flex: '0 0 auto' }}>{occurrences.length}</span>
+        <button onClick={onClose} title="закрыть" aria-label="закрыть" style={{
+          flex: '0 0 auto', width: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 12, lineHeight: 1,
+        }}>✕</button>
+      </div>
+      <div style={{ overflowY: 'auto', padding: '6px 10px', fontSize: 10, lineHeight: 1.6 }}>
+        {occurrences.length === 0 ? (
+          <div style={{ opacity: 0.6 }}>только здесь</div>
+        ) : (
+          occurrences.map((o, i) => (
+            <div key={`${o.where}-${o.role}-${i}`} style={{ overflowWrap: 'anywhere' }}>{o.where} · {o.role}</div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 // Default (id-less) source+target handles, invisible. React Flow will NOT mount an edge unless
@@ -584,7 +653,7 @@ function InstanceNode({ data }: NodeProps) {
   // the container's aggregate gutters for that child. Height MUST match containerLayout's
   // instanceCellHeight (same ioRowCount/ioRowsExtraHeight fns) or the grid misaligns.
   const rows = ioRowCount(io);
-  const height = TAXO_H.instance + ioRowsExtraHeight(io);
+  const height = TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io);
   const ins = io?.inputs ?? [];
   const outs = io?.outputs ?? [];
   return (
@@ -613,9 +682,16 @@ function InstanceNode({ data }: NodeProps) {
       {rows > 0 && (
         <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px' }}>
           {Array.from({ length: rows }).map((_, r) => (
-            <div key={r} style={{ minHeight: IO_ROW_H, display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'start', gap: 4 }}>
-              <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} kind={ins[r].required ? 'required' : 'optional'} color={color} />}</span>
-              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} kind="output" color={color} />}</span>
+            <div key={r} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ minHeight: IO_ROW_H, display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'start', gap: 4 }}>
+                <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} kind={ins[r].required ? 'required' : 'optional'} color={color} />}</span>
+                <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} kind="output" color={color} />}</span>
+              </div>
+              {ins[r]?.enumValues && ins[r].enumValues!.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, paddingLeft: 10 }}>
+                  {ins[r].enumValues!.map(v => <ClickablePill key={v} text={v} color={color} mono={false} />)}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -747,6 +823,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   // (see features/topos/lib/visibleTaxo.ts for why family ids need the classId prefix).
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [selTaxo, setSelTaxo] = useState<TaxoRender | null>(null);
+  // Task 15-R: pill inspector — the single shared "which value is selected" state, read/toggled by
+  // every ClickablePill/TaxoIOChip via PillContext. Toggle semantics: clicking the active value
+  // again clears it (same value in → null out).
+  const [activeValue, setActiveValue] = useState<string | null>(null);
+  const onActivate = useCallback((t: string) => setActiveValue(p => (p === t ? null : t)), []);
   const toggleTaxo = useCallback((id: string) => {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -1077,6 +1158,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   }
 
   return (
+    <PillContext.Provider value={{ active: activeValue, onActivate }}>
     <div style={{ position: 'relative', width: '100%', height, background: isDark ? '#0a1018' : '#f4f6f8' }}>
       <ReactFlow
         nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} colorMode={isDark ? 'dark' : 'light'}
@@ -1148,7 +1230,9 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       {selected && <DetailDrawer task={selected} isDark={isDark} onClose={() => setSelected(null)} />}
       {!selected && selItem && <ItemDrawer item={selItem} isDark={isDark} onClose={() => setSelItem(null)} />}
       {!selected && !selItem && selTaxo && <TaxoDrawer taxo={selTaxo} isDark={isDark} onClose={() => setSelTaxo(null)} />}
+      {activeValue !== null && <PillInspector value={activeValue} onClose={() => onActivate(activeValue)} />}
     </div>
+    </PillContext.Provider>
   );
 }
 

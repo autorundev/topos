@@ -42,7 +42,7 @@ function assert(cond: boolean, label: string) {
 }
 
 interface ExtractedTool {
-  inputs: { name: string; required: boolean }[];
+  inputs: { name: string; required: boolean; enum?: string[] }[];
   outputs: string[];
 }
 interface ExtractedDetector {
@@ -136,7 +136,13 @@ function main() {
     toolsMatched++;
     const io = TAXO_IO[node.id];
     const expectedInputs = schemaTool.inputs.length > 0
-      ? schemaTool.inputs.map(i => (i.required ? { name: i.name, required: true } : { name: i.name }))
+      ? schemaTool.inputs.map(i => {
+          const e: { name: string; required?: boolean; enumValues?: string[] } = i.required
+            ? { name: i.name, required: true }
+            : { name: i.name };
+          if (i.enum && i.enum.length > 0) e.enumValues = i.enum;
+          return e;
+        })
       : undefined;
     const actualInputs = io?.inputs;
     if (JSON.stringify(actualInputs) !== JSON.stringify(expectedInputs)) {

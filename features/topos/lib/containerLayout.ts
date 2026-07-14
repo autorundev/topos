@@ -67,10 +67,24 @@ export function ioRowsExtraHeight(io?: TaxoIO): number {
   for (let r = 0; r < rows; r++) h += IO_ROW_H + (ioRowTall(io, r) ? IO_LINE_EXTRA : 0);
   return h;
 }
-/** Full instance-cell height including any I/O rows. `taxoId` is the RAW TaxoNode id (TAXO_IO's
- * key), not the classId-namespaced render id. */
+// ── Task 15 Step 7 (enum-value pills) ──────────────────────────────────────────────────────
+// An input with `enumValues` grows a 2-column pill grid beneath its row (see InstanceNode /
+// ClickablePill in CanvasPage.tsx). ENUM_ROW_H=18 (not IO_ROW_H's 16) — a ClickablePill has its
+// own border+padding and needs a little more slack than a plain TaxoIOChip row.
+export const ENUM_ROW_H = 18;
+/** Extra height (beyond ioRowsExtraHeight) for any input's enum-pill grid — ceil(n/2) rows per
+ * enum-bearing input, matching the 2-column grid `InstanceNode` renders EXACTLY (budget >= render,
+ * the D-004 lesson: countable rows, not flex-wrap guesswork). */
+export function enumRowsExtraHeight(io?: TaxoIO): number {
+  if (!io?.inputs) return 0;
+  return io.inputs.reduce((h, i) => h + (i.enumValues?.length ? Math.ceil(i.enumValues.length / 2) * ENUM_ROW_H : 0), 0);
+}
+
+/** Full instance-cell height including any I/O rows + enum-pill rows. `taxoId` is the RAW
+ * TaxoNode id (TAXO_IO's key), not the classId-namespaced render id. */
 export function instanceCellHeight(taxoId: string): number {
-  return TAXO_H.instance + ioRowsExtraHeight(toposService.getTaxoIO(taxoId));
+  const io = toposService.getTaxoIO(taxoId);
+  return TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io);
 }
 
 export interface ContainerCell {

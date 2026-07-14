@@ -150,7 +150,7 @@ export interface TaxoNode {
 // cheap per-child I/O and stay on the class's aggregate ports. See
 // docs/superpowers/specs/2026-07-13-step2-per-child-ports-plan.md.
 export interface TaxoIO {
-  inputs?: { name: string; required?: boolean }[];
+  inputs?: { name: string; required?: boolean; enumValues?: string[] }[];
   outputs?: string[];
 }
 
