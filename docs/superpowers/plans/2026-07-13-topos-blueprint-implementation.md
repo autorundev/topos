@@ -2758,6 +2758,71 @@ git commit -m "topos: pill-ify remaining bare text + clickable copy-to-clipboard
 
 ---
 
+## Task 15-R (OWNER REDESIGN 2026-07-15): pill click = value inspector + cross-graph highlight
+
+**Supersedes** Task 15's Step-4 copy-to-clipboard action (Steps 1-3 enum extraction + Step 7 enum-pill
+rows + `enumRowsExtraHeight` height budget are UNCHANGED and still apply). Owner: «нужно открыть детали
+в панели и подсветить такие же в других местах». So a pill click no longer copies — it **selects a
+value**, which (a) opens a detail panel about that value and (b) highlights every pill/chip with the
+same text across the whole graph. Sub-decisions (coordinator's call, flagged): click = inspect+highlight
+only (NO copy); match key = exact pill text across all pill kinds; highlight = a bright ring on matches,
+no dimming of non-matches; clicking the active value again clears it.
+
+**Files:** `features/topos/components/CanvasPage.tsx` (PillContext, state, `ClickablePill` redesign,
+`TaxoIOChip` highlight-awareness, new `PillInspector` panel), `services/toposService.ts`
+(`findValueOccurrences`).
+
+**Contract:**
+1. **`PillContext`** (module scope in CanvasPage): `React.createContext<{ active: string | null;
+   onActivate: (text: string) => void }>({ active: null, onActivate: () => {} })`.
+2. **State + provider** in `CanvasPage`: `const [activeValue, setActiveValue] = useState<string | null>(null);`
+   `const onActivate = useCallback((t: string) => setActiveValue(p => (p === t ? null : t)), []);`
+   Wrap the returned tree (the `<div>` containing `<ReactFlow>` + all drawers + the new inspector) in
+   `<PillContext.Provider value={{ active: activeValue, onActivate }}>…</PillContext.Provider>`.
+3. **`ClickablePill` redesign** (replaces the copy-to-clipboard body): consume
+   `const { active, onActivate } = useContext(PillContext);` `const on = active === text;` `onClick`
+   → `e.stopPropagation(); onActivate(text);`. Style: when `on`, `boxShadow: 0 0 0 2px ${color}` +
+   `background: ${color}44`; else the normal `${color}1f`. Drop `navigator.clipboard` + the `copied`
+   state entirely. Keep it a `<button>`, keep `maxWidth`/ellipsis. `title` → `${text} — показать где ещё`.
+4. **`TaxoIOChip` highlight-awareness** (the always-visible in-card param/output chips): consume
+   `PillContext`; when `active === label`, add the same `boxShadow: 0 0 0 2px ${color}` ring (and keep
+   its existing bg). Do NOT make it clickable (a card-chip click must still fall through to node
+   selection) — it only PARTICIPATES in highlight, so "такие же" lights up across every card. The enum
+   pills under inputs are `ClickablePill`s (already clickable + highlightable from Step 3).
+5. **`PillInspector` panel** (new component, rendered by `CanvasPage` when `activeValue !== null`):
+   a fixed-position card (reuse the drawer visual language — `position:'absolute'`, a corner, mono,
+   surface bg, 1px border, max-height + scroll) showing:
+   - header: the value text (mono) + occurrence count + a close button that calls `onActivate(value)`
+     (toggles it off).
+   - body: `toposService.findValueOccurrences(value)` → a list; each row = `${where} · ${role}` as a
+     small line (e.g. `update_focus · параметр status (enum)`, `items · колонка`, `create_item · выход`).
+   - if 0 occurrences beyond the clicked one, say `только здесь`.
+6. **`toposService.findValueOccurrences(value: string): { where: string; role: string }[]`** (new):
+   scans, in this order, and returns every match (dedup by `where+role`):
+   - `TAXO_IO` (every tool + detector): input whose `name === value` → `{where: toolName, role:
+     'параметр'}`; input whose `enumValues` includes `value` → `{where: toolName, role: 'значение
+     параметра ' + input.name}`; output `=== value` → `{where: toolName, role: 'выход'}`.
+   - `VAULT_SCHEMA` (every table): column whose `name === value` → `{where: table, role: 'колонка'}`;
+     column whose `type === value` → `{where: table, role: 'тип колонки ' + column.name}`.
+   - Keep it pure data-scan (no model). The `where` is the human tool/table name where resolvable,
+     else the id.
+7. **T17 column pills** (see Task 17) are `ClickablePill`s too — so a DB column value highlights its
+   twins and inspects like any other pill (no extra work in this task beyond T17 using `ClickablePill`).
+
+**Height budget:** unchanged from Task 15 Step 7 — `enumRowsExtraHeight` (+`ENUM_ROW_H`) still needed
+for the enum-pill rows under inputs; wire it into `instanceCellHeight` and `InstanceNode.height` exactly
+as Step 7 shows (this stacks with the D-004 wrap-aware `ioRowsExtraHeight` already on the branch —
+`instanceCellHeight = TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io)`; note
+`ioRowsExtraHeight` now takes `(io)`, not `(rows)`, per D-004 — adapt Step 7's snippet accordingly).
+
+**Verify:** tsc==1(netlify), build ✓, all `check_*.ts` PASS; Puppeteer — click an enum pill (e.g.
+`update_focus` → `status` → `active`), confirm (a) a panel opens listing where `active` appears, (b)
+every `active` pill/chip across the graph gets the ring, (c) clicking it again clears both. No console
+errors. Commit replaces Step 10's message with:
+`git commit -m "topos: pill inspector — click a value to see where it recurs + highlight its twins"`.
+
+---
+
 ## Task 16: Extract vault-table schema (columns + types)
 
 **Files:**
