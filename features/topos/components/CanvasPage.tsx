@@ -390,18 +390,37 @@ function IOChip({ h }: { h: PortHandle }) {
     </span>
   );
 }
-// Per-child I/O chip (Step 2b) — a compact pill for the taxo instance leaf card (narrower than
-// BrickNode's IOChip, which is sized for the NODE_W=232 card). `required` bolds the label instead
-// of adding a second visual layer (dot/border) — cheapest legible distinction at this size; owner
-// polishes later. `title` carries the untruncated label since long tool outputs get ellipsized.
-function TaxoIOChip({ label, required, color }: { label: string; required?: boolean; color: string }) {
+// Per-child I/O terminal (Blueprint): the ROLE (required-in / optional-in / output) is carried by a
+// small terminal glyph — filled square = required input, hollow square = optional input, triangle =
+// output — so the label pill stays clean text in the wire tone and can wrap to 2 lines instead of
+// truncating at a fixed 62px (owner-reported: "pause_reason"/"frame_hypothesis" were clipping).
+// `title` still carries the untruncated label as a tooltip fallback for anything that still overflows.
+function PortTerminal({ kind, color }: { kind: 'required' | 'optional' | 'output'; color: string }) {
+  if (kind === 'output') {
+    return (
+      <svg width="7" height="7" viewBox="0 0 7 7" style={{ flex: '0 0 auto' }}>
+        <path d="M0.5 0.5 L6.5 3.5 L0.5 6.5 Z" fill={color} />
+      </svg>
+    );
+  }
+  return (
+    <span style={{
+      width: 6, height: 6, flex: '0 0 auto', boxSizing: 'border-box',
+      border: `1.2px solid ${color}`, background: kind === 'required' ? color : 'transparent',
+    }} />
+  );
+}
+function TaxoIOChip({ label, kind, color }: { label: string; kind: 'required' | 'optional' | 'output'; color: string }) {
   return (
     <span title={label} style={{
-      display: 'inline-block', maxWidth: 62, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 118, minWidth: 0,
       border: `1px solid ${color}`, background: `${color}1f`, color,
-      borderRadius: 4, padding: '0 4px', fontFamily: 'var(--font-mono)', fontSize: 7.5, lineHeight: `${IO_ROW_H - 2}px`,
-      fontWeight: required ? 700 : 400,
-    }}>{label}</span>
+      borderRadius: 4, padding: '2px 5px', fontFamily: 'var(--font-mono)', fontSize: 7.5, lineHeight: 1.25,
+    }}>
+      {kind === 'output' ? null : <PortTerminal kind={kind} color={color} />}
+      <span style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', overflowWrap: 'anywhere' }}>{label}</span>
+      {kind === 'output' ? <PortTerminal kind={kind} color={color} /> : null}
+    </span>
   );
 }
 // Default (id-less) source+target handles, invisible. React Flow will NOT mount an edge unless
@@ -594,9 +613,9 @@ function InstanceNode({ data }: NodeProps) {
       {rows > 0 && (
         <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px' }}>
           {Array.from({ length: rows }).map((_, r) => (
-            <div key={r} style={{ height: IO_ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-              <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} required={ins[r].required} color={color} />}</span>
-              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} color={color} />}</span>
+            <div key={r} style={{ minHeight: IO_ROW_H, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
+              <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} kind={ins[r].required ? 'required' : 'optional'} color={color} />}</span>
+              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} kind="output" color={color} />}</span>
             </div>
           ))}
         </div>
@@ -1106,6 +1125,10 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible' }}><path d="M7 1.1 L12.9 7 L7 12.9 L1.1 7 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>выход</span>
                 <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible', marginLeft: 4 }}><path d="M2 1 L13.5 7 L2 13 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>вход</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <span style={{ width: 6, height: 6, border: '1.2px solid #8a8f98', background: '#8a8f98', display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>обяз. параметр</span>
+                <span style={{ width: 6, height: 6, border: '1.2px solid #8a8f98', background: 'transparent', display: 'inline-block', marginLeft: 4 }} /><span style={{ opacity: 0.85 }}>опц. параметр</span>
               </div>
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СОСТАВ (▸ развернуть)</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
