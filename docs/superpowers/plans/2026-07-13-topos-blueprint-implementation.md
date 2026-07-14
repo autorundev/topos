@@ -2213,8 +2213,10 @@ export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row
 25):
 
 ```typescript
-import { roundUp24, snapPositions } from '../lib/gridSnap';
+import { roundUp24, snapTo24, snapPositions } from '../lib/gridSnap';
 ```
+
+(`snapTo24` is needed by the D-002 correction in Step 8.)
 
 Replace the sizing block (lines 230-245):
 
@@ -2351,8 +2353,14 @@ not yet run when this step executes, keep whatever that line currently reads and
 // before (line 946)
     zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 22, y: maxY + BAND_GAP - 6 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: bandW + 44, height: h + 12 }, draggable: false, selectable: false, zIndex: -1 } as Node);
 // after
-    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 24, y: maxY + BAND_GAP - 8 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: roundUp24(bandW + 48), height: roundUp24(h + 16) }, draggable: false, selectable: false, zIndex: -1 } as Node);
+    zones.push({ id: 'band_constraint', type: 'band', position: { x: snapTo24(minX - 24), y: snapTo24(maxY + BAND_GAP - 8) }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: roundUp24(bandW + 48), height: roundUp24(h + 16) }, draggable: false, selectable: false, zIndex: -1 } as Node);
 ```
+
+> **Correction D-002 (applied 2026-07-14 during execution).** The band POSITION must be snapped, not
+> just its size. `maxY + BAND_GAP - 8` is off the 24-grid by 16px (the `-8` cosmetic offset) even though
+> `BAND_GAP` is a 24-multiple — so the "after" above already wraps both `x` and `y` in `snapTo24` (add
+> `snapTo24` to the Step 6 import). Without it, `band_constraint` is the one top-level node that violates
+> the mandatory grid. See `docs/superpowers/DIVERGENCES.md` D-002.
 
 - [ ] **Step 9: Single 24px background grid, dots centered in each cell**
 
