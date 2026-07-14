@@ -53,3 +53,31 @@ Each entry: what was found, evidence, the fix, and where it was folded back.
 - **Note:** Task 8 (masonry) packs cells by `instanceCellHeight`, so this fix had to land BEFORE
   Task 8 for the packer to see correct heights.
 - **Folded back:** plan Task 6 Step 2 (correction note).
+
+## D-005 — enum-pill height budget ignored CSS gaps (Task 15-R)
+- **Found:** Batch 6 interactive review — 19/325 enum-bearing instance cards overflowed vertically
+  (up to +17.8px), a visible param pill spilling outside the card border (D-004 bug class again).
+- **Cause:** `enumRowsExtraHeight = ceil(nValues/2)*ENUM_ROW_H(18)` did not account for the enum grid's
+  `gap:3` between rows + the flex-wrapper `gap:2` — budget < render.
+- **Fix:** `ENUM_ROW_H 18 → 24` (parity with SCHEMA_ROW_H, which the review confirmed doesn't overflow;
+  slack = 5g+1 per enum-input, provably ≥ render). Re-verified live: 0 vertical + 0 horizontal overflow
+  across 325 fully-expanded cards.
+
+## D-006 — schema-pill inspector never matched (Task 17 + findValueOccurrences)
+- **Found:** Batch 6 interactive review — clicking a DB-column pill (`id: TEXT`) opened the inspector
+  but showed `0 / только здесь`, because the pill passed the COMPOUND `"name: type"` string while
+  `findValueOccurrences` matches a bare column name or type. The valuable cross-link (column `status` ↔
+  tool param `status`) was dead for every schema pill.
+- **Fix:** `ClickablePill` gained an optional `value?: string` (the match/activate KEY, defaults to
+  `text`); schema pills pass `value={col.name}` while still DISPLAYING `name: type`. Re-verified live:
+  clicking `id: TEXT` now keys on `id` → 62 occurrences listed (4 params + 58 columns), 62 twins ringed.
+
+## D-007 — inspector counts its own origin (Task 15-R)
+- **Found:** Batch 6 review — a genuinely-unique value showed `1 / <self>` instead of «только здесь»
+  because `findValueOccurrences` includes the clicked occurrence.
+- **Fix:** `PillInspector` shows «только здесь» when `occurrences.length <= 1` (was `=== 0`).
+
+## D-008 (note) — T16 extractor docstring had a literal `"""` (SyntaxError)
+- The plan's `extract_vault_schema.py` module docstring contained `"""..."""` inside the docstring body,
+  prematurely closing the triple-quoted string. Executor reworded the docstring text (logic/regex/AST
+  untouched) — necessary, reported. Fold: if regenerating, keep no `"""` inside the docstring.
