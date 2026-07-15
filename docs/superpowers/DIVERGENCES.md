@@ -81,3 +81,19 @@ Each entry: what was found, evidence, the fix, and where it was folded back.
 - The plan's `extract_vault_schema.py` module docstring contained `"""..."""` inside the docstring body,
   prematurely closing the triple-quoted string. Executor reworded the docstring text (logic/regex/AST
   untouched) — necessary, reported. Fold: if regenerating, keep no `"""` inside the docstring.
+
+## D-009 — motion conflict: inline transition overrides `.topos-enter` (Tasks 10 + 11)
+- **Found:** Batch 7 pre-dispatch review of T10+T11 together. T10 Step 2 sets an inline
+  `style.transition` on FamilyNode/InstanceNode; T11 adds `className="topos-enter"` (a class whose
+  `transition` lists opacity+transform+**filter** 260ms) to the SAME element. Inline style beats a
+  class selector on specificity → the class's `transition` is DEAD on these two leaf components, so the
+  `@starting-style` entrance runs on T10's inline timings, which **omit `filter`** → the entrance blur
+  (`blur(2px)→blur(0)`) would snap instantly instead of easing. The plan's literal T10 transition
+  (`'opacity .2s, transform .12s var(--ease-out), box-shadow .12s'`) misses this.
+- **Fix (folded into Batch 7 executor prompt):** for FamilyNode + InstanceNode ONLY, use a unified
+  filter-inclusive inline transition — `'opacity .22s var(--ease-out), transform .22s var(--ease-out),
+  filter .22s var(--ease-out), box-shadow .12s'` — so hover-lift AND the @starting-style entrance
+  (opacity+scale+blur) all ease, all sub-300ms. `.topos-enter` is kept purely for its `@starting-style`
+  initial values (which apply regardless of which transition wins) and still governs container nodes
+  (T11 Step 3, `className:'topos-enter'`) where no inline transition overrides it. ItemNode is
+  unchanged from the plan (T11 adds no `.topos-enter` to it → no filter needed).
