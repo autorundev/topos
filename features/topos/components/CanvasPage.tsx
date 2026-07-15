@@ -1216,7 +1216,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         </Panel>
 
         {!selected && (
-          <Panel position="top-right" style={{ marginTop: 44 }}>
+          <Panel position="top-right" style={{ marginTop: 56 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
               <button onClick={() => setShowLegend(v => !v)} style={btn(showLegend, isDark)} title="Легенда — природа, связи, порты, статусы">{showLegend ? '× легенда' : '≡ легенда'}</button>
               {showLegend && (
