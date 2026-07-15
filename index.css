@@ -132,7 +132,7 @@ button:disabled {
 .topos-chevron-glyph {
   transition: transform 120ms var(--ease-out);
 }
-.topos-chevron-glyph:active {
+button:active .topos-chevron-glyph {
   transform: scale(0.88);
 }
 
@@ -141,14 +141,17 @@ button:disabled {
    retargets smoothly if expanded toggles again mid-transition — genuinely interruptible, unlike a
    keyframe. Excludes .dragging so a user's own drag stays 1:1 with the pointer. */
 .react-flow__node:not(.dragging) {
-  transition: transform 400ms var(--ease-out);
+  transition: transform 400ms var(--ease-in-out);
 }
 
 /* Materialize: a freshly-mounted child card fades + scales in from near-full size (never scale(0))
    with a slight blur bridge, per-sibling staggered via inline transition-delay. @starting-style fires
    ONLY on true initial DOM insertion, so existing siblings never flicker when a new sibling appears.
-   NOTE: FamilyNode/InstanceNode carry an inline transition (incl. filter) that governs their entrance;
-   container nodes have no inline transition, so THIS class's transition governs theirs. */
+   NOTE: every consumer (FamilyNode/InstanceNode leaf cards AND family ContainerNode) carries its OWN
+   inline transition incl. filter that governs the entrance — this class exists purely to supply the
+   @starting-style initial values (opacity 0 / scale .95 / blur 2px), which apply regardless of which
+   transition wins. It is NEVER put on the .react-flow__node wrapper (react-flow's inline transform
+   would mask the scale there). */
 .topos-enter {
   opacity: 1;
   transform: scale(1);
@@ -180,7 +183,7 @@ button:disabled {
     }
   }
   .topos-chevron-glyph,
-  .topos-chevron-glyph:active {
+  button:active .topos-chevron-glyph {
     transition: none;
     transform: none;
   }

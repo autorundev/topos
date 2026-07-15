@@ -732,6 +732,7 @@ type ContainerNodeData = {
   handles?: PortHandle[];
   childCount?: number;
   partId?: string;
+  enter?: boolean;
 };
 function ContainerNode({ id, data }: NodeProps) {
   const d = data as unknown as ContainerNodeData;
@@ -740,9 +741,10 @@ function ContainerNode({ id, data }: NodeProps) {
   const west = (handles ?? []).filter(hh => hh.side === 'WEST');
   const east = (handles ?? []).filter(hh => hh.side === 'EAST');
   return (
-    <div style={{
+    <div className={d.enter ? 'topos-enter' : undefined} style={{
       position: 'relative', width: w, height: h, boxSizing: 'border-box', borderRadius: 12,
-      border: `1.5px dashed ${color}99`, background: `${color}0c`, opacity, transition: 'opacity .2s, box-shadow .12s',
+      border: `1.5px dashed ${color}99`, background: `${color}0c`, opacity,
+      transition: d.enter ? 'opacity .22s var(--ease-out), transform .22s var(--ease-out), filter .22s var(--ease-out), box-shadow .12s' : 'opacity .2s, box-shadow .12s',
       boxShadow: selected
         ? `inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)`
         : 'inset 0 1px 0 rgba(255,255,255,.05)',
@@ -1032,12 +1034,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const nature = rt?.nature ?? 'code';
       return {
         id: f.renderId, type: 'container', ...base,
-        className: 'topos-enter',
         data: {
           variant: 'family', label: rt?.name ?? f.renderId, nature, color: natureColorFor(nature, isDark), opacity,
           selected: selTaxo?.id === f.renderId, onToggle: toggleTaxo,
           headerH: f.header ?? CONTAINER_HEADER_H, gutterL: 0, gutterR: 0, w: f.w, h: f.h,
-          childCount: rt?.childCount ?? 0,
+          childCount: rt?.childCount ?? 0, enter: true,
         } as ContainerNodeData,
       } as Node;
     }).filter(Boolean) as Node[];
@@ -1046,14 +1047,22 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   // Leaf cells (collapsed-family or instance cards) inside any expanded container, at their
   // absolute canvas position — reuse the existing FamilyNode/InstanceNode components as-is.
   const taxoLeafNodesRF: Node[] = useMemo(() => {
-    return containerFlat.filter(f => f.kind !== 'container').map((f, i) => {
+    const perParent = new Map<string, number>();
+    return containerFlat.filter(f => f.kind !== 'container').map(f => {
       const rt = taxoById.get(f.renderId);
       if (!rt) return null;
       const classId = f.renderId.split('::')[0];
       const opacity = classOpacity(classId);
       const isSel = selTaxo?.id === f.renderId;
       const color = natureColorFor(rt.nature, isDark);
-      const enterDelay = Math.min(i, 7) * 45;
+      // Stagger is per-PARENT container: reset the counter for each parent so a freshly-expanded
+      // family's children cascade 0,45,90… from 0ms regardless of how many unrelated cards are
+      // already open elsewhere. A single global index saturated the Math.min(…,7) cap and collapsed
+      // the stagger into a simultaneous 315ms-delayed pop.
+      const parentKey = f.renderId.slice(0, f.renderId.lastIndexOf('::'));
+      const localIdx = perParent.get(parentKey) ?? 0;
+      perParent.set(parentKey, localIdx + 1);
+      const enterDelay = Math.min(localIdx, 7) * 45;
       if (f.kind === 'family') {
         return {
           id: f.renderId, type: 'family', position: { x: f.x, y: f.y },
