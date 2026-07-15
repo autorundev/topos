@@ -143,7 +143,7 @@ const TOUCHPOINT_CAT: Record<string, string> = {
 const ITEM_W = 168, ITEM_H = 48, ITEM_GX = 24, ITEM_GY = 24, BAND_LABEL = 24, BAND_PAD = 24, BAND_GAP = 72;
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
-const ROW_H = 32;   // one input/output row — tall enough for a 2-line chip
+const ROW_H = 24;   // one input/output row = ONE background grid cell (24px) — ports land on the grid, edges enter at a uniform 1-cell pitch. Chips are single-line (ellipsis + tooltip) so a row fits in 24px.
 // family-badge count on the det_detectors header — taxonomy-derived (real family list), not a
 // parsed common_variants string. Only det_detectors shows this header strip (unchanged scope);
 // see toposService.getTaxonomy('det_detectors') for the source of truth.
@@ -387,15 +387,18 @@ function PortShape({ h }: { h: PortHandle }) {
     </Handle>
   );
 }
-// I/O chip: a pill outlined in the edge colour; label in the same tone, wraps up to 2 lines.
-function IOChip({ h }: { h: PortHandle }) {
+// I/O chip: a pill outlined in the edge colour; label in the same tone. SINGLE LINE (ROW_H is now
+// one 24px grid cell) — a long label ellipsises and keeps its full text in the `title` tooltip (and
+// the node drawer). maxWidth is generous so a label that's alone on its side of the row fills the
+// width instead of truncating early; when both sides carry a chip the flex row shares the space.
+function IOChip({ h, maxWidth = 186 }: { h: PortHandle; maxWidth?: number }) {
   return (
     <span title={h.label} style={{
-      display: 'inline-flex', maxWidth: 98, minWidth: 0,
+      display: 'inline-flex', maxWidth, minWidth: 0,
       border: `1px solid ${h.color}`, background: `${h.color}1f`, color: h.color,
-      borderRadius: 6, padding: '2px 6px', fontFamily: 'var(--font-mono)', fontSize: 8.5, lineHeight: 1.3,
+      borderRadius: 6, padding: '2px 6px', fontFamily: 'var(--font-mono)', fontSize: 8.5, lineHeight: 1.25,
     }}>
-      <span style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', overflowWrap: 'anywhere' }}>{h.label}</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.label}</span>
     </span>
   );
 }
@@ -566,28 +569,24 @@ function BrickNode({ data }: NodeProps) {
       {handles.map((h) => (<PortShape key={h.id} h={h} />))}
       {/* default anchors kept for handle-mount parity with the taxo leaf cards */}
       <MembershipHandles />
-      {/* touch chevron — absolutely positioned OUTSIDE the header's overflow:hidden box (a sibling,
-          not a row member) so nothing perturbs headerH(task) / ELK port math. The 16px VISUAL sits
-          in the top-right corner (next to the nature pill); its 32px invisible tap area spills up-
-          right into the card's dead corner. The visual is small enough (y≈6–22) to clear the title
-          row below (y≈25+), so the title no longer needs a right reserve and won't wrap. */}
-      {hasTaxonomy && (
-        <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2 }}>
-          <TouchChevron color={color} expanded={taxoExpanded} onToggle={() => onToggleTaxo(task.id)} />
-        </div>
-      )}
-      {/* header — fixed height so ELK ports stay aligned with the rows */}
-      <div style={{ height: headerH(task), overflow: 'hidden', padding: '6px 12px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-          <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
-          <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catLabel(task.id)}</span>
+      {/* header — fixed height so ELK ports stay aligned with the rows. Draft-faithful strip
+          (blueprint-mock `.hd`): expand chevron — or the kind icon when the card has no taxonomy —
+          on the LEFT, title + caption stacked in the middle, nature pill on the RIGHT. The chevron
+          is an in-flow flex member now (was an absolute top-right corner sibling that collided with
+          the nature pill — owner: "перенести КОД в шапку"); its 32px tap area still overflows via
+          TouchChevron's negative margin, so it costs only ~glyph px of layout and headerH math is
+          unchanged. overflow:hidden clips to headerH(task) so ports stay aligned regardless. */}
+      <div style={{ height: headerH(task), overflow: 'hidden', padding: '8px 10px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {hasTaxonomy
+            ? <TouchChevron color={color} expanded={taxoExpanded} onToggle={() => onToggleTaxo(task.id)} />
+            : <span style={{ display: 'inline-flex', color, flex: '0 0 auto' }}><Icon size={15} /></span>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.name}</div>
+            <div style={{ fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.5, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{catLabel(task.id)} · {partId(task)}</div>
+          </div>
           <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES_META[natureOf(task.id)].short}</span>
         </div>
-        {/* no right reserve for the chevron (the 16px visual sits a row above the title) — restores
-            the pre-Step-1 full-width title. nowrap+ellipsis guards against ever wrapping to a 2nd
-            line, which headerH() does not budget for. */}
-        <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.name}</div>
-        <div style={{ fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.5, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{partId(task)}</div>
         {families.length > 0 && (
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
             {families.map(f => {
@@ -773,10 +772,15 @@ function ContainerNode({ id, data }: NodeProps) {
       {variant === 'class' && (
         <>
           <div style={{ position: 'absolute', left: 0, top: hH, width: gutterL, bottom: 0, borderRight: `1px dashed ${color}22` }}>
-            {west.map(hh => (<div key={hh.id} style={{ position: 'absolute', top: hh.y - 10, left: 16, maxWidth: gutterL - 22 }}><IOChip h={hh} /></div>))}
+            {/* chip is CENTERED on its port glyph's y. The glyph (PortShape Handle) sits at node-y
+                `hh.y`; this gutter div is itself offset by the header hH, so within it the glyph line
+                is `hh.y - hH`. translateY(-50%) centers the chip on that line regardless of the
+                chip's own height — fixes the prior `hh.y - 10` which double-counted hH and dropped
+                every label ~one header below its glyph/edge (owner: "рёбра не стыкуются с портами"). */}
+            {west.map(hh => (<div key={hh.id} style={{ position: 'absolute', top: hh.y - hH, transform: 'translateY(-50%)', left: 16, maxWidth: gutterL - 22 }}><IOChip h={hh} maxWidth={gutterL - 22} /></div>))}
           </div>
           <div style={{ position: 'absolute', right: 0, top: hH, width: gutterR, bottom: 0, borderLeft: `1px dashed ${color}22` }}>
-            {east.map(hh => (<div key={hh.id} style={{ position: 'absolute', top: hh.y - 10, right: 16, maxWidth: gutterR - 22 }}><IOChip h={hh} /></div>))}
+            {east.map(hh => (<div key={hh.id} style={{ position: 'absolute', top: hh.y - hH, transform: 'translateY(-50%)', right: 16, maxWidth: gutterR - 22 }}><IOChip h={hh} maxWidth={gutterR - 22} /></div>))}
           </div>
         </>
       )}
@@ -1127,7 +1131,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       if (isStoreEdgeType(e.rel.type) && !showStores) return null;
       const color = EDGE_COLOR[e.rel.type] ?? '#8a8f98';
       const isLoop = e.source === 'eff_respond' && e.target === 'det_detectors';
-      const isRead = e.rel.type === 'reads_from';
+      const isStore = isStoreEdgeType(e.rel.type);   // reads_from OR writes_to — both DASHED + flowing (owner)
       let dim = false, emph = true;
       if (selItem) { emph = false; dim = true; }               // band item selected → fade the flow edges
       else if (flowIds) { emph = flowIds.has(e.source) && flowIds.has(e.target); dim = !emph; }
@@ -1141,9 +1145,12 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         style: {
           stroke,
           strokeWidth: (emph && (flowIds || focusId)) ? 2.6 : 1.6,   // uniform; thicker only to spotlight a path
-          strokeDasharray: isRead ? '1 6' : undefined, opacity: dim ? 0.06 : 0.9,
+          // read + write (store) edges are DASHED ('5 4', matching the blueprint draft) — was dotted
+          // '1 6' on read only. `animated` runs React Flow's dashdraw (stroke-dashoffset 10→0), which
+          // marches the dashes source→target = the direction data actually moves, same as the loop.
+          strokeDasharray: isStore ? '5 4' : undefined, opacity: dim ? 0.06 : 0.9,
         },
-        animated: isLoop || ((flowIds || focusId) ? (emph && wakesFlow) : false), zIndex: dim ? 0 : 1,
+        animated: isLoop || isStore || ((flowIds || focusId) ? (emph && wakesFlow) : false), zIndex: dim ? 0 : 1,
       } as Edge;
     }).filter(Boolean) as Edge[];
     return list;
@@ -1238,12 +1245,12 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СВЯЗИ</div>
               {EDGE_LEGEND.map(([type, ru]) => {
                 const c = EDGE_COLOR[type.split(' ')[0]] ?? '#8a8f98';
-                const dotted = type === 'reads_from';
-                return (<div key={type} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, height: 0, borderTop: `2px ${dotted ? 'dotted' : 'solid'} ${c}`, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{type}</span><span style={{ opacity: 0.45 }}>{ru}</span></div>);
+                const dashed = isStoreEdgeType(type.split(' ')[0]);   // read + write = dashed + flowing
+                return (<div key={type} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 14, height: 0, borderTop: `2px ${dashed ? 'dashed' : 'solid'} ${c}`, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{type}</span><span style={{ opacity: 0.45 }}>{ru}</span></div>);
               })}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}><span style={{ width: 14, height: 0, borderTop: '2px solid #e6a63c', display: 'inline-block' }} /><span style={{ opacity: 0.85, color: '#e6a63c' }}>↺ петля (эффект = write)</span></div>
-              <div style={{ opacity: 0.5, marginTop: 5 }}>сплошная = запись / поток</div>
-              <div style={{ opacity: 0.5 }}>пунктир = чтение (read-only)</div>
+              <div style={{ opacity: 0.5, marginTop: 5 }}>сплошная = поток / эффект</div>
+              <div style={{ opacity: 0.5 }}>пунктир = чтение / запись (бежит по направлению данных)</div>
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>ПОРТЫ</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible' }}><path d="M7 1.1 L12.9 7 L7 12.9 L1.1 7 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>выход</span>

@@ -179,6 +179,10 @@ button:active .topos-chevron-glyph {
     animation: topos-fade 150ms ease backwards;
     animation-delay: 0ms !important;
   }
+  /* Flowing edges (React Flow dashdraw on the loop + read/write store edges) march perpetually to
+     show data-flow direction — vestibular motion, so halt it under reduced-motion. The dashes stay
+     (they still encode read/write), they just stop moving. */
+  .react-flow__edge.animated path { animation: none !important; }
   .topos-chevron-glyph,
   button:active .topos-chevron-glyph {
     transition: none;
