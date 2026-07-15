@@ -625,14 +625,14 @@ type FamilyNodeData = { name: string; childCount: number; color: string; expande
 function FamilyNode({ id, data }: NodeProps) {
   const { name, childCount, color, expanded, hasChildren, onToggle, selected, opacity, enterDelay } = data as unknown as FamilyNodeData;
   return (
-    <div className="rf-brick topos-enter" style={{ transitionDelay: enterDelay ? `${enterDelay}ms` : undefined,
+    <div className="rf-brick topos-enter" style={{ animationDelay: enterDelay ? `${enterDelay}ms` : undefined,
       position: 'relative', width: TAXO_W, height: TAXO_H.family, boxSizing: 'border-box', borderRadius: 8, border: `1.3px solid ${color}`,
       background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5,
       // reserve only the 16px chevron visual (+ gap), not a full 32px box — the tap area extends
       // invisibly over the ×N count / right edge, which is fine on a small leaf card.
       padding: hasChildren ? '0 26px 0 8px' : '0 8px', cursor: 'pointer',
-      opacity, transition: 'opacity .22s var(--ease-out), transform .22s var(--ease-out), filter .22s var(--ease-out), box-shadow .12s',
+      opacity, transition: 'opacity .2s, transform .12s var(--ease-out), box-shadow .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <MembershipHandles />
@@ -666,11 +666,11 @@ function InstanceNode({ data }: NodeProps) {
   const ins = io?.inputs ?? [];
   const outs = io?.outputs ?? [];
   return (
-    <div className="rf-brick topos-enter" style={{ transitionDelay: enterDelay ? `${enterDelay}ms` : undefined,
+    <div className="rf-brick topos-enter" style={{ animationDelay: enterDelay ? `${enterDelay}ms` : undefined,
       width: TAXO_W, height, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
       background: `linear-gradient(180deg, ${color}18, ${color}09), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', flexDirection: 'column', cursor: 'pointer',
-      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .22s var(--ease-out), transform .22s var(--ease-out), filter .22s var(--ease-out), box-shadow .12s',   // dead-dim × focus-dim, stacked
+      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .2s, transform .12s var(--ease-out), box-shadow .12s',   // dead-dim × focus-dim, stacked
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <MembershipHandles />
@@ -743,8 +743,7 @@ function ContainerNode({ id, data }: NodeProps) {
   return (
     <div className={d.enter ? 'topos-enter' : undefined} style={{
       position: 'relative', width: w, height: h, boxSizing: 'border-box', borderRadius: 12,
-      border: `1.5px dashed ${color}99`, background: `${color}0c`, opacity,
-      transition: d.enter ? 'opacity .22s var(--ease-out), transform .22s var(--ease-out), filter .22s var(--ease-out), box-shadow .12s' : 'opacity .2s, box-shadow .12s',
+      border: `1.5px dashed ${color}99`, background: `${color}0c`, opacity, transition: 'opacity .2s, box-shadow .12s',
       boxShadow: selected
         ? `inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)`
         : 'inset 0 1px 0 rgba(255,255,255,.05)',

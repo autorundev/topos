@@ -145,42 +145,39 @@ button:active .topos-chevron-glyph {
 }
 
 /* Materialize: a freshly-mounted child card fades + scales in from near-full size (never scale(0))
-   with a slight blur bridge, per-sibling staggered via inline transition-delay. @starting-style fires
-   ONLY on true initial DOM insertion, so existing siblings never flicker when a new sibling appears.
-   NOTE: every consumer (FamilyNode/InstanceNode leaf cards AND family ContainerNode) carries its OWN
-   inline transition incl. filter that governs the entrance — this class exists purely to supply the
-   @starting-style initial values (opacity 0 / scale .95 / blur 2px), which apply regardless of which
-   transition wins. It is NEVER put on the .react-flow__node wrapper (react-flow's inline transform
-   would mask the scale there). */
+   with a slight blur bridge. Implemented as a one-shot KEYFRAME (not a transition) for two reasons:
+   (1) the per-card stagger rides on `animation-delay`, which — unlike `transition-delay` — does NOT
+   bleed into the element's interactive hover/dim TRANSITIONS; (2) an inline `transition` shorthand on
+   the same element would otherwise reset the delay component to 0 and silently kill the stagger.
+   `backwards` fill holds the first keyframe (invisible) through the delay so a staggered card stays
+   hidden until its turn, and applies NO fill after it ends — so the finished card reverts to its own
+   inline opacity/transform (interactive dim + hover keep working). Runs once per DOM insertion;
+   re-renders of an already-mounted node don't replay it, so existing siblings never flicker when a new
+   sibling mounts. NEVER put `.topos-enter` on the .react-flow__node wrapper — react-flow's inline
+   transform would mask the scale; it goes on each node's own inner root div (leaf cards + family
+   ContainerNode). */
+@keyframes topos-materialize {
+  from { opacity: 0; transform: scale(0.95); filter: blur(2px); }
+  to   { opacity: 1; transform: scale(1);    filter: blur(0);   }
+}
+@keyframes topos-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 .topos-enter {
-  opacity: 1;
-  transform: scale(1);
-  filter: blur(0);
-  transition: opacity 260ms var(--ease-out), transform 260ms var(--ease-out), filter 260ms var(--ease-out);
-
-  @starting-style {
-    opacity: 0;
-    transform: scale(0.95);
-    filter: blur(2px);
-  }
+  animation: topos-materialize 260ms var(--ease-out) backwards;
 }
 
 /* Reduced motion: keep opacity/color (they aid comprehension), drop movement/scale/blur. Reflow
-   becomes an instant-ish opacity settle; entrances become opacity-only cross-fade (no scale/blur/
-   stagger). transition-delay:0ms !important overrides the per-node inline transitionDelay. */
+   becomes an instant-ish opacity settle; entrances become an opacity-only fade (no scale/blur/
+   stagger). animation-delay:0ms !important overrides the per-node inline animationDelay stagger. */
 @media (prefers-reduced-motion: reduce) {
   .react-flow__node:not(.dragging) {
     transition: opacity 150ms ease;
   }
   .topos-enter {
-    transition: opacity 150ms ease;
-    transition-delay: 0ms !important;
-
-    @starting-style {
-      opacity: 0;
-      transform: none;
-      filter: none;
-    }
+    animation: topos-fade 150ms ease backwards;
+    animation-delay: 0ms !important;
   }
   .topos-chevron-glyph,
   button:active .topos-chevron-glyph {
