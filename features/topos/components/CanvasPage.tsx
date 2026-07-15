@@ -1195,8 +1195,9 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         onNodeClick={onNodeClick} onPaneClick={() => { setSelected(null); setSelItem(null); setSelTaxo(null); }}
         fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.2} proOptions={{ hideAttribution: true }}
       >
-        <Background id="bg-grid" gap={24} size={1} offset={12} variant={BackgroundVariant.Dots} color={isDark ? '#1b2838' : '#dfe4ea'} />
-        <Background id="bg-major" gap={120} lineWidth={1} variant={BackgroundVariant.Lines} color={isDark ? '#132030' : '#e6e9ee'} style={{ opacity: isDark ? 0.6 : 0.4 }} />
+        {/* major ruled grid FIRST (behind), fine dots SECOND (on top + brighter) so the dots read clearly */}
+        <Background id="bg-major" gap={120} lineWidth={1} variant={BackgroundVariant.Lines} color={isDark ? '#17242f' : '#e6e9ee'} style={{ opacity: isDark ? 0.45 : 0.35 }} />
+        <Background id="bg-grid" gap={24} size={1.4} offset={12} variant={BackgroundVariant.Dots} color={isDark ? '#38506e' : '#c8d0da'} />
 
         <Panel position="top-left">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 700 }}>
