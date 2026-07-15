@@ -23,12 +23,12 @@ import { toposService } from '../../../services/toposService';
 import { taxoRenderId } from './visibleTaxo';
 
 // ── geometry constants — single source of truth, imported by CanvasPage.tsx for rendering ──
-export const TAXO_W = 156;
-export const TAXO_H: Record<TaxoKind, number> = { family: 40, instance: 34 };
-export const CONTAINER_HEADER_H = 40;    // header strip: icon/label + nature pill + touch chevron
-export const CONTAINER_GUTTER_W = 124;   // class-root only: port shape + IOChip column, each side
-export const CONTAINER_BODY_PAD = 14;    // header/gutter → first grid cell, and body → far edges
-export const CELL_GAP = 10;              // gap between grid cells, both axes
+export const TAXO_W = 168;
+export const TAXO_H: Record<TaxoKind, number> = { family: 40, instance: 32 };
+export const CONTAINER_HEADER_H = 48;    // header strip: icon/label + nature pill + touch chevron — outer-grid-facing (a class-root container's overall size feeds ELK)
+export const CONTAINER_GUTTER_W = 120;   // class-root only: port shape + IOChip column, each side
+export const CONTAINER_BODY_PAD = 16;    // header/gutter → first grid cell, and body → far edges
+export const CELL_GAP = 8;               // gap between grid cells, both axes
 const MAX_GRID_COLS = 4;
 
 // ── Step 2b: per-child I/O chip rows on an instance leaf card ──────────────────────────────
@@ -38,20 +38,67 @@ const MAX_GRID_COLS = 4;
 // convention, one level down). Exported so CanvasPage's InstanceNode component can render EXACTLY
 // the row count/height this module reserves in the grid — the two MUST agree, or leaf cards will
 // visually overlap their neighbours' grid slot.
-export const IO_ROW_H = 15;
-export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row
+export const IO_ROW_H = 16;
+export const IO_ROW_PAD = 4;   // gap between the name row and the first I/O row — a connective micro-gap, deliberately exempt from the 8px grid (like a border width)
+
+// A 2-line-wrapped I/O chip adds this over a single-line row's IO_ROW_H. WebkitLineClamp:2 caps a
+// chip at 2 lines, so reserving one extra line for any row whose label CAN wrap keeps the budgeted
+// height ALWAYS >= the rendered height (D-004 fix — a flat 1-line budget overflowed the card border).
+export const IO_LINE_EXTRA = 12;
+// A chip wraps when its label exceeds one line of its ~half-card column. Instance card TAXO_W=168,
+// I/O body split into two ~76px grid columns → ~54px text width → ~11 mono glyphs at fontSize 7.5.
+// Threshold kept conservative (11) so budgeted >= rendered; over-budget only adds slack.
+export const IO_WRAP_CHARS = 11;
 
 export function ioRowCount(io?: TaxoIO): number {
   if (!io) return 0;
   return Math.max(io.inputs?.length ?? 0, io.outputs?.length ?? 0);
 }
-export function ioRowsExtraHeight(rows: number): number {
-  return rows > 0 ? IO_ROW_PAD + rows * IO_ROW_H : 0;
+function ioRowTall(io: TaxoIO, r: number): boolean {
+  const inLen = io.inputs?.[r]?.name?.length ?? 0;
+  const outLen = io.outputs?.[r]?.length ?? 0;
+  return inLen > IO_WRAP_CHARS || outLen > IO_WRAP_CHARS;
 }
-/** Full instance-cell height including any I/O rows. `taxoId` is the RAW TaxoNode id (TAXO_IO's
- * key), not the classId-namespaced render id. */
+/** Extra height (beyond TAXO_H.instance) for a leaf's I/O rows, counting 2-line-wrapped rows. */
+export function ioRowsExtraHeight(io?: TaxoIO): number {
+  const rows = ioRowCount(io);
+  if (rows === 0 || !io) return 0;
+  let h = IO_ROW_PAD;
+  for (let r = 0; r < rows; r++) h += IO_ROW_H + (ioRowTall(io, r) ? IO_LINE_EXTRA : 0);
+  return h;
+}
+// ── Task 15 Step 7 (enum-value pills) ──────────────────────────────────────────────────────
+// An input with `enumValues` grows a 2-column pill grid beneath its row (see InstanceNode /
+// ClickablePill in CanvasPage.tsx). ENUM_ROW_H=18 (not IO_ROW_H's 16) — a ClickablePill has its
+// own border+padding and needs a little more slack than a plain TaxoIOChip row.
+export const ENUM_ROW_H = 24;   // per enum-grid row: pill ~16 + grid gap 3 + wrapper gap + slack — budget must cover the CSS gaps or 2-line enum params overflow (D-004 class; parity with SCHEMA_ROW_H)
+/** Extra height (beyond ioRowsExtraHeight) for any input's enum-pill grid — ceil(n/2) rows per
+ * enum-bearing input, matching the 2-column grid `InstanceNode` renders EXACTLY (budget >= render,
+ * the D-004 lesson: countable rows, not flex-wrap guesswork). */
+export function enumRowsExtraHeight(io?: TaxoIO): number {
+  if (!io?.inputs) return 0;
+  return io.inputs.reduce((h, i) => h + (i.enumValues?.length ? Math.ceil(i.enumValues.length / 2) * ENUM_ROW_H : 0), 0);
+}
+
+// ── Task 17 (vault DB-table schema block) ──────────────────────────────────────────────────
+// A vault instance whose taxoId resolves to a VAULT_SCHEMA entry (Task 16) grows a 2-column
+// column-pill grid beneath its IO/enum rows (see InstanceNode in CanvasPage.tsx). SCHEMA_ROW_H=24
+// (taller than ENUM_ROW_H's 18) — "name: TYPE" pills run longer than a bare enum value.
+export const SCHEMA_ROW_H = 24;
+/** Extra height (beyond ioRowsExtraHeight + enumRowsExtraHeight) for a vault instance's DB-table
+ * schema block — ceil(columns/2) rows, matching the 2-column grid `InstanceNode` renders EXACTLY
+ * (budget >= render, the D-004 lesson: countable grid rows, not flex-wrap guesswork). */
+export function schemaRowsExtraHeight(taxoId: string): number {
+  const schema = toposService.getVaultSchema(taxoId);
+  if (!schema || schema.columns.length === 0) return 0;
+  return Math.ceil(schema.columns.length / 2) * SCHEMA_ROW_H;
+}
+
+/** Full instance-cell height including any I/O rows + enum-pill rows + DB-table schema rows.
+ * `taxoId` is the RAW TaxoNode id (TAXO_IO's key), not the classId-namespaced render id. */
 export function instanceCellHeight(taxoId: string): number {
-  return TAXO_H.instance + ioRowsExtraHeight(ioRowCount(toposService.getTaxoIO(taxoId)));
+  const io = toposService.getTaxoIO(taxoId);
+  return TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io) + schemaRowsExtraHeight(taxoId);
 }
 
 export interface ContainerCell {
@@ -134,25 +181,30 @@ export function containerLayout(rootId: string, expanded: Set<string>, _tasks: T
     return { renderId, kind: child.kind, x: 0, y: 0, w: TAXO_W, h, seq: child.seq };
   });
 
+  // Masonry: greedy shortest-column placement. A tall cell (e.g. a 10-param tool card) no longer
+  // inflates every cell sharing its row-major "row" — it only affects its OWN column's running
+  // height. Column ASSIGNMENT stays declaration/seq order (cells.forEach walks `cells` in that
+  // order), so a container that's expanded twice in a row lays out identically (deterministic).
   const cols = gridCols(cells.length);
+  const colHeights: number[] = new Array(cols).fill(0);
   const colWidths: number[] = new Array(cols).fill(0);
-  const rowHeights: number[] = [];
+  const colOf: number[] = [];
   cells.forEach((cell, i) => {
-    const col = i % cols, row = Math.floor(i / cols);
+    let col = 0;
+    for (let c = 1; c < cols; c++) if (colHeights[c] < colHeights[col]) col = c;
+    colOf[i] = col;
+    cell.y = colHeights[col];
+    colHeights[col] += cell.h + CELL_GAP;
     colWidths[col] = Math.max(colWidths[col], cell.w);
-    rowHeights[row] = Math.max(rowHeights[row] ?? 0, cell.h);
   });
   const colX: number[] = [0];
   for (let c = 1; c < cols; c++) colX[c] = colX[c - 1] + colWidths[c - 1] + CELL_GAP;
-  const rowY: number[] = [0];
-  for (let r = 1; r < rowHeights.length; r++) rowY[r] = rowY[r - 1] + rowHeights[r - 1] + CELL_GAP;
-  cells.forEach((cell, i) => {
-    const col = i % cols, row = Math.floor(i / cols);
-    cell.x = colX[col]; cell.y = rowY[row];
-  });
+  cells.forEach((cell, i) => { cell.x = colX[colOf[i]]; });
 
   const bodyW = cells.length === 0 ? TAXO_W : colWidths.reduce((a, b) => a + b, 0) + CELL_GAP * (cols - 1);
-  const bodyH = cells.length === 0 ? TAXO_H.instance : rowHeights.reduce((a, b) => a + b, 0) + CELL_GAP * (rowHeights.length - 1);
+  const bodyH = cells.length === 0
+    ? TAXO_H.instance
+    : Math.max(...colHeights.map((h, c) => cells.some((_, i) => colOf[i] === c) ? h - CELL_GAP : 0));
 
   const header = CONTAINER_HEADER_H;
   const gutterL = isTopLevel ? CONTAINER_GUTTER_W : 0;

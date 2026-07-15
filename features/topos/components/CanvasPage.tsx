@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
-  ReactFlow, Background, Panel, Handle,
+  ReactFlow, Background, BackgroundVariant, Panel, Handle,
   BaseEdge,
   type Node, type Edge, type NodeProps, type EdgeProps, Position,
 } from '@xyflow/react';
@@ -14,17 +14,28 @@ import {
 } from 'lucide-react';
 import { toposService } from '../../../services/toposService';
 import { TOPOS_DATA } from '../../../data';
+import { natureColorFor, clusterColorFor, type ClusterSlug } from '../../../data/palette';
 import { useDarkMode } from '../../../hooks/useDarkMode';
 import type { Task, IOItem, NodeCategory, NodeNature, NodeStatus, TaxoIO } from '../../../types';
+import type { VaultTableSchema } from '../../../data/vault_schema';
 import { visibleTaxo, type TaxoRender } from '../lib/visibleTaxo';
 import {
   containerLayout, flattenContainerLayout,
   TAXO_W, TAXO_H, CONTAINER_HEADER_H,
-  IO_ROW_H, ioRowCount, ioRowsExtraHeight,
+  IO_ROW_H, ioRowCount, ioRowsExtraHeight, enumRowsExtraHeight,
+  SCHEMA_ROW_H, schemaRowsExtraHeight,
   type ContainerLayoutResult, type FlatContainerCell,
 } from '../lib/containerLayout';
+import { roundUp24, snapTo24, snapPositions } from '../lib/gridSnap';
 
-const NODE_W = 232;   // I/O chips stack as rows inside the card (grows height, not width)
+// Task 15-R (pill inspector): a click on any pill/chip value selects it — every pill/chip carrying
+// the SAME text, anywhere in the graph, gets a highlight ring, and a PillInspector panel opens
+// listing where else that value occurs (toposService.findValueOccurrences). Module-scope context
+// so ClickablePill/TaxoIOChip instances anywhere in the tree can read/toggle the single shared
+// `activeValue` without prop-drilling through every intermediate node component.
+const PillContext = React.createContext<{ active: string | null; onActivate: (text: string) => void }>({ active: null, onActivate: () => {} });
+
+const NODE_W = 240;   // I/O chips stack as rows inside the card (grows height, not width) — 24px-grid-aligned
 type XY = { x: number; y: number };
 type Pos = Record<string, XY>;
 type EdgePts = Record<string, XY[]>;
@@ -36,7 +47,7 @@ const SIDE_POS: Record<Side, Position> = { EAST: Position.Right, WEST: Position.
 // left→right pipeline: inbound → internal → outbound. ELK partitions keep zones apart.
 const LAYER_ORDER: Record<string, number> = { layer_inbound: 0, layer_internal: 1, layer_outbound: 2 };
 // SAFE ZONE — clearance ELK keeps between any edge and a node it does NOT connect to.
-const SAFE_ZONE = 34;
+const SAFE_ZONE = 24;
 
 const EDGE_COLOR: Record<string, string> = {
   writes_to: '#59708a', reads_from: '#3fb6c9', reduces: '#7a5cc4', wakes: '#e6a63c',
@@ -103,13 +114,13 @@ const catLabel = (id: string) => CATEGORIES[catOf(id)].label;
 // PRIMARY axis — nature of the operation (Atlas: probabilistic / deterministic / human).
 // The model runs in a few places, everything else is code — VectorOS doctrine made visible.
 type Nature = NodeNature;
-const NATURES: Record<Nature, { label: string; short: string; color: string }> = {
-  model: { label: 'Вероятностное · модель',  short: 'модель',  color: '#b45fd6' },
-  code:  { label: 'Детерминированное · код', short: 'код',     color: '#4a90c2' },
-  human: { label: 'Человек',                 short: 'человек', color: '#e0894a' },
+const NATURES_META: Record<Nature, { label: string; short: string }> = {
+  model: { label: 'Вероятностное · модель',  short: 'модель' },
+  code:  { label: 'Детерминированное · код', short: 'код' },
+  human: { label: 'Человек',                 short: 'человек' },
 };
 const natureOf = (id: string): Nature => (toposService.getTaskById(id)?.nature ?? 'code') as Nature;
-const natureColor = (id: string) => NATURES[natureOf(id)].color;
+const natureColor = (id: string, isDark: boolean) => natureColorFor(natureOf(id), isDark);
 
 // ═══════ cross-cutting bands (Atlas): Constraints (invariants) + Touchpoints (surfaces).
 const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -129,10 +140,10 @@ const TOUCHPOINT_CAT: Record<string, string> = {
   conversational: 'диалог', screen_interface: 'экран', voice_audio: 'голос',
   technical: 'тех', spatial_computing: 'spatial', physical_devices: 'девайсы',
 };
-const ITEM_W = 174, ITEM_H = 54, ITEM_GX = 16, ITEM_GY = 14, BAND_LABEL = 30, BAND_PAD = 16, BAND_GAP = 66;
+const ITEM_W = 168, ITEM_H = 48, ITEM_GX = 24, ITEM_GY = 24, BAND_LABEL = 24, BAND_PAD = 24, BAND_GAP = 72;
 
 // deterministic node geometry so ELK ports line up with the rendered I/O rows.
-const ROW_H = 34;   // one input/output row — tall enough for a 2-line chip
+const ROW_H = 32;   // one input/output row — tall enough for a 2-line chip
 // family-badge count on the det_detectors header — taxonomy-derived (real family list), not a
 // parsed common_variants string. Only det_detectors shows this header strip (unchanged scope);
 // see toposService.getTaxonomy('det_detectors') for the source of truth.
@@ -141,7 +152,15 @@ const famCountOf = (t: Task) => t.id === 'det_detectors' ? toposService.getTaxon
 function headerH(t: Task): number {
   const famRows = famCountOf(t) ? Math.ceil(famCountOf(t) / 2) : 0;
   const badges = (BADGES[t.id] ?? []).length ? 20 : 0;
-  return 58 + famRows * 20 + badges;
+  return 70 + famRows * 20 + badges;   // +12 vs. pre-Blueprint base — reserves the part-id caption line
+}
+
+// small mono caption under a card's title — mechanically derived (kind + taxonomy child count when
+// present), never hand-curated, so it stays correct for all ~40 classes without a new dataset.
+function partId(t: Task): string {
+  const { kind } = kindOf(t);
+  const n = toposService.getTaxonomy(t.id).length;
+  return n > 0 ? `${kind} · ${n}` : kind;
 }
 
 // ═══════════════ detail-hierarchy (drill-down) node geometry + status palette ═══════════════
@@ -181,12 +200,12 @@ const ELK_OPTS = {
   'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
-  'elk.spacing.nodeNode': '58',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '150',
+  'elk.spacing.nodeNode': '48',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '144',
   'elk.spacing.edgeNode': String(SAFE_ZONE),            // ← safe zone: edge ↔ foreign node
   'elk.layered.spacing.edgeNodeBetweenLayers': String(SAFE_ZONE),
-  'elk.spacing.edgeEdge': '16',
-  'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
+  'elk.spacing.edgeEdge': '24',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': '24',
   'elk.spacing.portPort': '13',
 };
 
@@ -234,13 +253,14 @@ async function computeLayout(
       // reconcile the pure grid size with the row-height the class's OWN flow ports need — a
       // class can have more I/O ports than grid rows (or vice versa).
       const portsH = cl.header + rows * ROW_H + 6;
-      const h = Math.max(cl.size.h, portsH);
-      containerLayouts[t.id] = h === cl.size.h ? cl : { ...cl, size: { w: cl.size.w, h } };
-      widths[t.id] = cl.size.w;
+      const h = roundUp24(Math.max(cl.size.h, portsH));
+      const w = roundUp24(cl.size.w);
+      containerLayouts[t.id] = (h === cl.size.h && w === cl.size.w) ? cl : { ...cl, size: { w, h } };
+      widths[t.id] = w;
       heights[t.id] = h;
     } else {
-      widths[t.id] = NODE_W;
-      heights[t.id] = headerH(t) + rows * ROW_H + 6;
+      widths[t.id] = roundUp24(NODE_W);
+      heights[t.id] = roundUp24(headerH(t) + rows * ROW_H + 6);
     }
   });
   // header height ELK ports must align to: the container header for an expanded class, else the
@@ -294,25 +314,30 @@ async function computeLayout(
     edges: edges.map(e => ({ id: e.id, sources: [portS(e.id)], targets: [portT(e.id)] })),
   };
   const res: any = await elk.layout(pass2 as any);
-  const pos: Pos = {};
+  const rawPos: Pos = {};
   const handles: Handles = {};
   (res.children ?? []).forEach((c: any) => {
-    pos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
+    rawPos[c.id] = { x: c.x ?? 0, y: c.y ?? 0 };
     (c.ports ?? []).forEach((p: any) => {
       const side = (p.layoutOptions?.['elk.port.side'] ?? 'EAST') as Side;
       (handles[c.id] ??= []).push({ id: p.id, kind: p.id.endsWith('__s') ? 'source' : 'target', side, x: p.x ?? 0, y: p.y ?? 0 });
     });
   });
-  const pts: EdgePts = {};
+  const rawPts: EdgePts = {};
   (res.edges ?? []).forEach((e: any) => {
     const sec = e.sections?.[0];
     if (!sec) return;
-    pts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
+    rawPts[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint];
   });
+  const edgeEndpoints: Record<string, { source: string; target: string }> = {};
+  edges.forEach(e => { edgeEndpoints[e.id] = { source: e.source, target: e.target }; });
+  const { pos, pts } = snapPositions({ pos: rawPos, pts: rawPts, edgeEndpoints });
   return { pos, pts, handles, heights, widths, containerLayouts };
 }
 
-// rounded orthogonal SVG path through ELK bend points.
+// 45° chamfer instead of a rounded corner (circuit-trace look, Blueprint amendment 2026-07-14):
+// c1/c2 are equidistant (`r`) from the bend along each axis-aligned leg, so the straight line
+// between them is geometrically exactly 45°.
 function orthoPath(p: XY[], radius = 12): string {
   if (p.length < 2) return '';
   const dist = (a: XY, b: XY) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
@@ -323,7 +348,7 @@ function orthoPath(p: XY[], radius = 12): string {
     const r = Math.min(radius, d1 / 2, d2 / 2);
     const c1 = { x: cur.x + (prev.x - cur.x) / d1 * r, y: cur.y + (prev.y - cur.y) / d1 * r };
     const c2 = { x: cur.x + (next.x - cur.x) / d2 * r, y: cur.y + (next.y - cur.y) / d2 * r };
-    d += ` L ${c1.x},${c1.y} Q ${cur.x},${cur.y} ${c2.x},${c2.y}`;
+    d += ` L ${c1.x},${c1.y} L ${c2.x},${c2.y}`;
   }
   const last = p[p.length - 1];
   d += ` L ${last.x},${last.y}`;
@@ -368,24 +393,106 @@ function IOChip({ h }: { h: PortHandle }) {
     <span title={h.label} style={{
       display: 'inline-flex', maxWidth: 98, minWidth: 0,
       border: `1px solid ${h.color}`, background: `${h.color}1f`, color: h.color,
-      borderRadius: 6, padding: '2px 6px', fontFamily: 'monospace', fontSize: 8.5, lineHeight: 1.3,
+      borderRadius: 6, padding: '2px 6px', fontFamily: 'var(--font-mono)', fontSize: 8.5, lineHeight: 1.3,
     }}>
       <span style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', overflowWrap: 'anywhere' }}>{h.label}</span>
     </span>
   );
 }
-// Per-child I/O chip (Step 2b) — a compact pill for the taxo instance leaf card (narrower than
-// BrickNode's IOChip, which is sized for the NODE_W=232 card). `required` bolds the label instead
-// of adding a second visual layer (dot/border) — cheapest legible distinction at this size; owner
-// polishes later. `title` carries the untruncated label since long tool outputs get ellipsized.
-function TaxoIOChip({ label, required, color }: { label: string; required?: boolean; color: string }) {
+// Per-child I/O terminal (Blueprint): the ROLE (required-in / optional-in / output) is carried by a
+// small terminal glyph — filled square = required input, hollow square = optional input, triangle =
+// output — so the label pill stays clean text in the wire tone and can wrap to 2 lines instead of
+// truncating at a fixed 62px (owner-reported: "pause_reason"/"frame_hypothesis" were clipping).
+// `title` still carries the untruncated label as a tooltip fallback for anything that still overflows.
+function PortTerminal({ kind, color }: { kind: 'required' | 'optional' | 'output'; color: string }) {
+  if (kind === 'output') {
+    return (
+      <svg width="7" height="7" viewBox="0 0 7 7" style={{ flex: '0 0 auto' }}>
+        <path d="M0.5 0.5 L6.5 3.5 L0.5 6.5 Z" fill={color} />
+      </svg>
+    );
+  }
+  return (
+    <span style={{
+      width: 6, height: 6, flex: '0 0 auto', boxSizing: 'border-box',
+      border: `1.2px solid ${color}`, background: kind === 'required' ? color : 'transparent',
+    }} />
+  );
+}
+// Always-visible in-card param/output chip. NOT clickable (a card-chip click must still fall
+// through to node selection) — it only PARTICIPATES in the pill-inspector highlight (Task 15-R),
+// so clicking a ClickablePill elsewhere lights up every TaxoIOChip carrying the same text too.
+function TaxoIOChip({ label, kind, color }: { label: string; kind: 'required' | 'optional' | 'output'; color: string }) {
+  const { active } = React.useContext(PillContext);
+  const on = active === label;
   return (
     <span title={label} style={{
-      display: 'inline-block', maxWidth: 62, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', minWidth: 0,
       border: `1px solid ${color}`, background: `${color}1f`, color,
-      borderRadius: 4, padding: '0 4px', fontFamily: 'monospace', fontSize: 7.5, lineHeight: `${IO_ROW_H - 2}px`,
-      fontWeight: required ? 700 : 400,
-    }}>{label}</span>
+      borderRadius: 4, padding: '2px 5px', fontFamily: 'var(--font-mono)', fontSize: 7.5, lineHeight: 1.25,
+      boxShadow: on ? `0 0 0 2px ${color}` : undefined,
+    }}>
+      {kind === 'output' ? null : <PortTerminal kind={kind} color={color} />}
+      <span style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden', overflowWrap: 'anywhere' }}>{label}</span>
+      {kind === 'output' ? <PortTerminal kind={kind} color={color} /> : null}
+    </span>
+  );
+}
+// Task 15-R: a pill click no longer copies to clipboard — it SELECTS a value (toggles it in
+// PillContext), which (a) highlights every pill/chip sharing the same text across the whole graph
+// and (b) opens a PillInspector panel listing where else that value occurs. Clicking the already-
+// active value again clears it. `mono=false` is used for enum values (Cyrillic-friendly Sans).
+function ClickablePill({ text, value, color, mono = true }: { text: string; value?: string; color: string; mono?: boolean }) {
+  const { active, onActivate } = React.useContext(PillContext);
+  const key = value ?? text;   // the match/activate KEY (e.g. a DB column pill shows "name: TYPE" but keys on the bare column name so it cross-links with same-named params/columns)
+  const on = active === key;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onActivate(key); }}
+      title={`${text} — показать где ещё`}
+      style={{
+        display: 'inline-flex', maxWidth: '100%', minWidth: 0, cursor: 'pointer',
+        border: `1px solid ${color}`, background: on ? `${color}44` : `${color}1f`, color,
+        boxShadow: on ? `0 0 0 2px ${color}` : undefined,
+        borderRadius: 4, padding: '2px 6px', fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+        fontSize: 9, lineHeight: 1.3, transition: 'background 150ms var(--ease-out), box-shadow 150ms var(--ease-out)',
+      }}
+    >
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+    </button>
+  );
+}
+// Task 15-R: opens when a ClickablePill/TaxoIOChip's value is active. Lists every OTHER place the
+// same value occurs (toposService.findValueOccurrences), pure data-scan, no model. Reuses the
+// drawer visual language (fixed corner card, mono, surface bg, 1px border, scroll body).
+function PillInspector({ value, onClose }: { value: string; onClose: () => void }) {
+  const occurrences = useMemo(() => toposService.findValueOccurrences(value), [value]);
+  return (
+    <div style={{
+      position: 'absolute', right: 16, bottom: 16, zIndex: 20, width: 260, maxHeight: 320,
+      display: 'flex', flexDirection: 'column',
+      background: 'var(--surface, #101826)', border: '1px solid var(--text-muted, #4a5568)',
+      borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,.5)', overflow: 'hidden',
+      fontFamily: 'var(--font-mono)', color: 'var(--text-main, #e6e9ee)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--text-muted, #4a5568)', flex: '0 0 auto' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{value}</span>
+        <span style={{ fontSize: 10, opacity: 0.6, flex: '0 0 auto' }}>{occurrences.length}</span>
+        <button onClick={onClose} title="закрыть" aria-label="закрыть" style={{
+          flex: '0 0 auto', width: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 12, lineHeight: 1,
+        }}>✕</button>
+      </div>
+      <div style={{ overflowY: 'auto', padding: '6px 10px', fontSize: 10, lineHeight: 1.6 }}>
+        {occurrences.length <= 1 ? (
+          <div style={{ opacity: 0.6 }}>только здесь</div>
+        ) : (
+          occurrences.map((o, i) => (
+            <div key={`${o.where}-${o.role}-${i}`} style={{ overflowWrap: 'anywhere' }}>{o.where} · {o.role}</div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 // Default (id-less) source+target handles, invisible. React Flow will NOT mount an edge unless
@@ -427,7 +534,7 @@ function TouchChevron({ color, expanded, onToggle, glyph = 16, hit = 32 }: { col
         WebkitTapHighlightColor: 'transparent',
       }}
     >
-      <span aria-hidden style={{
+      <span aria-hidden className="topos-chevron-glyph" style={{
         width: glyph, height: glyph, boxSizing: 'border-box',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         borderRadius: 6, border: `1.3px solid ${color}66`, background: `${color}22`, color,
@@ -451,7 +558,9 @@ function BrickNode({ data }: NodeProps) {
       position: 'relative', width: NODE_W, minHeight: minH, boxSizing: 'border-box', borderRadius: 11, border: `1.5px solid ${color}`,
       background: `linear-gradient(180deg, ${color}22, ${color}0f), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', opacity, transition: 'opacity .2s, box-shadow .12s, transform .12s',
-      boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
+      boxShadow: selected
+        ? `inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)`
+        : 'inset 0 1px 0 rgba(255,255,255,.06), 0 10px 22px -14px rgba(0,0,0,.7)',
     }}>
       {/* port shapes on the border: ◇ output right, ▷ input left — aligned to the I/O rows below */}
       {handles.map((h) => (<PortShape key={h.id} h={h} />))}
@@ -471,19 +580,20 @@ function BrickNode({ data }: NodeProps) {
       <div style={{ height: headerH(task), overflow: 'hidden', padding: '6px 12px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
           <span style={{ display: 'inline-flex', color }}><Icon size={13} /></span>
-          <span style={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 9, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catLabel(task.id)}</span>
-          <span style={{ flex: '0 0 auto', fontFamily: 'monospace', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES[natureOf(task.id)].short}</span>
+          <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{catLabel(task.id)}</span>
+          <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES_META[natureOf(task.id)].short}</span>
         </div>
         {/* no right reserve for the chevron (the 16px visual sits a row above the title) — restores
             the pre-Step-1 full-width title. nowrap+ellipsis guards against ever wrapping to a 2nd
             line, which headerH() does not budget for. */}
         <div style={{ fontWeight: 600, fontSize: 12.5, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.name}</div>
+        <div style={{ fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.5, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{partId(task)}</div>
         {families.length > 0 && (
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
             {families.map(f => {
               const [name, count] = f.split('×');
               return (
-                <span key={f} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontFamily: 'monospace', fontSize: 9, padding: '1px 5px', borderRadius: 5, border: `1px solid ${color}44`, background: `${color}12` }}>
+                <span key={f} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontFamily: 'var(--font-mono)', fontSize: 9, padding: '1px 5px', borderRadius: 5, border: `1px solid ${color}44`, background: `${color}12` }}>
                   <span style={{ opacity: 0.9 }}>{name.trim()}</span><span style={{ color, fontWeight: 600 }}>×{count?.trim()}</span>
                 </span>
               );
@@ -492,7 +602,7 @@ function BrickNode({ data }: NodeProps) {
         )}
         {badges.length > 0 && (
           <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {badges.map(b => (<span key={b} style={{ fontFamily: 'monospace', fontSize: 8.5, padding: '1px 5px', borderRadius: 4, border: `1px solid ${color}55`, color, opacity: 0.9 }}>{b}</span>))}
+            {badges.map(b => (<span key={b} style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, padding: '1px 5px', borderRadius: 4, border: `1px solid ${color}55`, color, opacity: 0.9 }}>{b}</span>))}
           </div>
         )}
       </div>
@@ -511,25 +621,24 @@ function BrickNode({ data }: NodeProps) {
   );
 }
 // ---- detail-hierarchy (drill-down) nodes: compact family/instance cards, attach via `contains` ----
-type FamilyNodeData = { name: string; childCount: number; nature: NodeNature; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number };
+type FamilyNodeData = { name: string; childCount: number; color: string; expanded: boolean; hasChildren: boolean; onToggle: (id: string) => void; selected: boolean; opacity: number; enterDelay?: number };
 function FamilyNode({ id, data }: NodeProps) {
-  const { name, childCount, nature, expanded, hasChildren, onToggle, selected, opacity } = data as unknown as FamilyNodeData;
-  const color = NATURES[nature].color;
+  const { name, childCount, color, expanded, hasChildren, onToggle, selected, opacity, enterDelay } = data as unknown as FamilyNodeData;
   return (
-    <div className="rf-brick" style={{
+    <div className="rf-brick topos-enter" style={{ animationDelay: enterDelay ? `${enterDelay}ms` : undefined,
       position: 'relative', width: TAXO_W, height: TAXO_H.family, boxSizing: 'border-box', borderRadius: 8, border: `1.3px solid ${color}`,
       background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', alignItems: 'center', gap: 5,
       // reserve only the 16px chevron visual (+ gap), not a full 32px box — the tap area extends
       // invisibly over the ×N count / right edge, which is fine on a small leaf card.
       padding: hasChildren ? '0 26px 0 8px' : '0 8px', cursor: 'pointer',
-      opacity, transition: 'opacity .2s',
+      opacity, transition: 'opacity .2s, transform .12s var(--ease-out), box-shadow .12s',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <MembershipHandles />
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
       <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
-      {childCount > 0 && <span style={{ fontFamily: 'monospace', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
+      {childCount > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
       {hasChildren && (
         <div style={{ position: 'absolute', top: '50%', right: 4, transform: 'translateY(-50%)' }}>
           <TouchChevron color={color} expanded={expanded} onToggle={() => onToggle(id)} />
@@ -538,25 +647,30 @@ function FamilyNode({ id, data }: NodeProps) {
     </div>
   );
 }
-type InstanceNodeData = { name: string; nature: NodeNature; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO };
+type InstanceNodeData = { name: string; color: string; status: NodeStatus; selected: boolean; opacity: number; seq?: number; io?: TaxoIO; schema?: VaultTableSchema; enterDelay?: number };
 function InstanceNode({ data }: NodeProps) {
-  const { name, nature, status, selected, opacity, seq, io } = data as unknown as InstanceNodeData;
-  const color = NATURES[nature].color;
+  const { name, color, status, selected, opacity, seq, io, schema, enterDelay } = data as unknown as InstanceNodeData;
   const dead = status === 'dead';
   // Step 2b: a leaf with TAXO_IO (tools + detectors) shows its OWN ports as chip rows below the
   // name — input left / output right, one row per max(inputs, outputs) — replacing reliance on
   // the container's aggregate gutters for that child. Height MUST match containerLayout's
   // instanceCellHeight (same ioRowCount/ioRowsExtraHeight fns) or the grid misaligns.
   const rows = ioRowCount(io);
-  const height = TAXO_H.instance + ioRowsExtraHeight(rows);
+  // Task 17: a vault instance's DB-table schema block adds ceil(cols/2) rows on top of IO/enum
+  // rows. InstanceNode only receives the RESOLVED `schema` (not the raw taxoId), so the row count
+  // is derived straight from `schema.columns.length` here — this MUST equal what
+  // containerLayout's `schemaRowsExtraHeight(taxoId)` budgets from the SAME underlying data
+  // (toposService.getVaultSchema(taxoId)), or the grid misaligns (the D-004 lesson).
+  const schemaExtra = schema && schema.columns.length > 0 ? Math.ceil(schema.columns.length / 2) * SCHEMA_ROW_H : 0;
+  const height = TAXO_H.instance + ioRowsExtraHeight(io) + enumRowsExtraHeight(io) + schemaExtra;
   const ins = io?.inputs ?? [];
   const outs = io?.outputs ?? [];
   return (
-    <div className="rf-brick" style={{
+    <div className="rf-brick topos-enter" style={{ animationDelay: enterDelay ? `${enterDelay}ms` : undefined,
       width: TAXO_W, height, boxSizing: 'border-box', borderRadius: 7, border: `1.1px ${dead ? 'dashed' : 'solid'} ${color}`,
       background: `linear-gradient(180deg, ${color}18, ${color}09), var(--surface, #101826)`,
       color: 'var(--text-main, #e6e9ee)', display: 'flex', flexDirection: 'column', cursor: 'pointer',
-      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .2s',   // dead-dim × focus-dim, stacked
+      opacity: (dead ? 0.5 : 1) * opacity, transition: 'opacity .2s, transform .12s var(--ease-out), box-shadow .12s',   // dead-dim × focus-dim, stacked
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <MembershipHandles />
@@ -566,7 +680,7 @@ function InstanceNode({ data }: NodeProps) {
         {typeof seq === 'number' ? (
           <span style={{
             width: 14, height: 14, borderRadius: '50%', background: `${color}2a`, border: `1px solid ${color}88`,
-            color, fontSize: 8, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto',
+            color, fontSize: 8, fontFamily: 'var(--font-mono)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto',
           }}>{seq + 1}</span>
         ) : (
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
@@ -577,10 +691,27 @@ function InstanceNode({ data }: NodeProps) {
       {rows > 0 && (
         <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px' }}>
           {Array.from({ length: rows }).map((_, r) => (
-            <div key={r} style={{ height: IO_ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-              <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} required={ins[r].required} color={color} />}</span>
-              <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} color={color} />}</span>
+            <div key={r} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ minHeight: IO_ROW_H, display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'start', gap: 4 }}>
+                <span style={{ minWidth: 0, display: 'flex' }}>{ins[r] && <TaxoIOChip label={ins[r].name} kind={ins[r].required ? 'required' : 'optional'} color={color} />}</span>
+                <span style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>{outs[r] && <TaxoIOChip label={outs[r]} kind="output" color={color} />}</span>
+              </div>
+              {ins[r]?.enumValues && ins[r].enumValues!.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, paddingLeft: 10 }}>
+                  {ins[r].enumValues!.map(v => <ClickablePill key={v} text={v} color={color} mono={false} />)}
+                </div>
+              )}
             </div>
+          ))}
+        </div>
+      )}
+      {schema && schema.columns.length > 0 && (
+        <div style={{ flex: '0 0 auto', boxSizing: 'border-box', padding: '0 6px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+          {schema.columns.map(col => (
+            <span key={col.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
+              <PortTerminal kind={col.required ? 'required' : 'optional'} color={color} />
+              <ClickablePill text={`${col.name}: ${col.type}`} value={col.name} color={color} />
+            </span>
           ))}
         </div>
       )}
@@ -600,18 +731,22 @@ type ContainerNodeData = {
   catLabel?: string; icon?: React.ComponentType<{ size?: number }>;
   handles?: PortHandle[];
   childCount?: number;
+  partId?: string;
+  enter?: boolean;
 };
 function ContainerNode({ id, data }: NodeProps) {
   const d = data as unknown as ContainerNodeData;
-  const { variant, label, nature, color, opacity, selected, onToggle, headerH: hH, gutterL, gutterR, w, h, handles, childCount } = d;
+  const { variant, label, nature, color, opacity, selected, onToggle, headerH: hH, gutterL, gutterR, w, h, handles, childCount, partId: pid } = d;
   const Icon = d.icon;
   const west = (handles ?? []).filter(hh => hh.side === 'WEST');
   const east = (handles ?? []).filter(hh => hh.side === 'EAST');
   return (
-    <div style={{
+    <div className={d.enter ? 'topos-enter' : undefined} style={{
       position: 'relative', width: w, height: h, boxSizing: 'border-box', borderRadius: 12,
       border: `1.5px dashed ${color}99`, background: `${color}0c`, opacity, transition: 'opacity .2s, box-shadow .12s',
-      boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
+      boxShadow: selected
+        ? `inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)`
+        : 'inset 0 1px 0 rgba(255,255,255,.05)',
     }}>
       <MembershipHandles />
       {variant === 'class' && handles && handles.map(hh => (<PortShape key={hh.id} h={hh} />))}
@@ -619,15 +754,20 @@ function ContainerNode({ id, data }: NodeProps) {
           (stopPropagation); a click anywhere else on the header/body bubbles to onNodeClick, same
           as clicking a collapsed card, and opens the DetailDrawer/TaxoDrawer for this node. */}
       <div style={{
-        height: hH, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6,
+        height: hH, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center',
         padding: '0 10px', borderBottom: `1px solid ${color}33`, background: `${color}16`,
         borderRadius: '11px 11px 0 0',
       }}>
-        {Icon && <span style={{ display: 'inline-flex', color, flex: '0 0 auto' }}><Icon size={13} /></span>}
-        <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: variant === 'class' ? 12.5 : 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</span>
-        {variant === 'family' && !!childCount && <span style={{ fontFamily: 'monospace', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
-        <span style={{ flex: '0 0 auto', fontFamily: 'monospace', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES[nature].short}</span>
-        <TouchChevron color={color} expanded onToggle={() => onToggle(id)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {Icon && <span style={{ display: 'inline-flex', color, flex: '0 0 auto' }}><Icon size={13} /></span>}
+          <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: variant === 'class' ? 12.5 : 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</span>
+          {variant === 'family' && !!childCount && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, opacity: 0.6, flex: '0 0 auto' }}>×{childCount}</span>}
+          <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 4px', borderRadius: 4, border: `1px solid ${color}66`, background: `${color}18`, color, opacity: 0.9 }}>{NATURES_META[nature].short}</span>
+          <TouchChevron color={color} expanded onToggle={() => onToggle(id)} />
+        </div>
+        {variant === 'class' && pid && (
+          <div style={{ fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '.06em', textTransform: 'uppercase', color, opacity: 0.5, marginTop: 1 }}>{pid}</div>
+        )}
       </div>
       {/* L/R aggregate-port gutters — class root only; nested family containers carry no ports */}
       {variant === 'class' && (
@@ -649,7 +789,7 @@ function ZoneNode({ data }: NodeProps) {
   const { label, role, color } = data as unknown as ZoneData;
   return (
     <div style={{ width: '100%', height: '100%', borderRadius: 18, border: `1px dashed ${color}2e`, background: `${color}07` }}>
-      <div style={{ position: 'absolute', top: 10, left: 16, fontFamily: 'monospace', fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color, opacity: 0.42 }}>
+      <div style={{ position: 'absolute', top: 10, left: 16, fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color, opacity: 0.42 }}>
         {label} <span style={{ letterSpacing: 0, textTransform: 'none' }}>· {role}</span>
       </div>
     </div>
@@ -660,7 +800,7 @@ function BandNode({ data }: NodeProps) {
   const { label, role, color } = data as unknown as ZoneData;
   return (
     <div style={{ width: '100%', height: '100%', borderRadius: 14, border: `1px dashed ${color}44`, background: `${color}0a` }}>
-      <div style={{ position: 'absolute', top: 8, left: 14, fontFamily: 'monospace', fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color, opacity: 0.72 }}>
+      <div style={{ position: 'absolute', top: 8, left: 14, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color, opacity: 0.72 }}>
         {label} <span style={{ opacity: 0.6, letterSpacing: 0, textTransform: 'none' }}>· {role}</span>
       </div>
     </div>
@@ -673,13 +813,13 @@ function ItemNode({ data }: NodeProps) {
     <div className="rf-brick" style={{
       width: ITEM_W, boxSizing: 'border-box', borderRadius: 9, border: `1.5px solid ${color}`,
       background: `linear-gradient(180deg, ${color}20, ${color}0c), var(--surface, #101826)`,
-      color: 'var(--text-main, #e6e9ee)', padding: '7px 9px', opacity: dim ? 0.22 : 1, transition: 'opacity .2s, box-shadow .12s',
+      color: 'var(--text-main, #e6e9ee)', padding: '7px 9px', opacity: dim ? 0.22 : 1, transition: 'opacity .2s, box-shadow .12s, transform .12s var(--ease-out)',
       boxShadow: selected ? `0 0 0 2px ${color}, 0 6px 18px rgba(0,0,0,.4)` : undefined,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
         <span style={{ display: 'inline-flex', color }}><Icon size={12} /></span>
-        <span style={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 8, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{category}</span>
-        {dirLabel && <span style={{ flex: '0 0 auto', fontFamily: 'monospace', fontSize: 7.5, padding: '0 4px', borderRadius: 3, border: `1px solid ${color}66`, color, opacity: 0.9 }}>{dirLabel}</span>}
+        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '.05em', textTransform: 'uppercase', color, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{category}</span>
+        {dirLabel && <span style={{ flex: '0 0 auto', fontFamily: 'var(--font-mono)', fontSize: 7.5, padding: '0 4px', borderRadius: 3, border: `1px solid ${color}66`, color, opacity: 0.9 }}>{dirLabel}</span>}
       </div>
       <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.15 }}>{label}</div>
     </div>
@@ -703,6 +843,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
   // (see features/topos/lib/visibleTaxo.ts for why family ids need the classId prefix).
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [selTaxo, setSelTaxo] = useState<TaxoRender | null>(null);
+  // Task 15-R: pill inspector — the single shared "which value is selected" state, read/toggled by
+  // every ClickablePill/TaxoIOChip via PillContext. Toggle semantics: clicking the active value
+  // again clears it (same value in → null out).
+  const [activeValue, setActiveValue] = useState<string | null>(null);
+  const onActivate = useCallback((t: string) => setActiveValue(p => (p === t ? null : t)), []);
   const toggleTaxo = useCallback((id: string) => {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -790,7 +935,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
   const zoneNodes: Node[] = useMemo(() => {
     if (!pos) return [];
-    const PAD = 46, TOP = 34;
+    const PAD = 48, TOP = 24;
     return layers.map((layer) => {
       const members = tasks.filter(t => t.layer_id === layer.id && pos[t.id]);
       if (!members.length) return null;
@@ -803,11 +948,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       const maxY = Math.max(...members.map(t => pos[t.id].y + (heights[t.id] ?? headerH(t) + ROW_H))) + PAD;
       return {
         id: `zone_${layer.id}`, type: 'zone', position: { x: minX, y: minY },
-        data: { label: layer.name, role: layer.role, color: layer.color },
-        style: { width: maxX - minX, height: maxY - minY }, draggable: false, selectable: false, zIndex: -1,
+        data: { label: layer.name, role: layer.role, color: clusterColorFor(layer.slug as ClusterSlug, isDark) },
+        style: { width: roundUp24(maxX - minX), height: roundUp24(maxY - minY) }, draggable: false, selectable: false, zIndex: -1,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [layers, tasks, pos, heights, widths]);
+  }, [layers, tasks, pos, heights, widths, isDark]);
 
   // Focus/spotlight dimming for a class id — the SAME thresholds brickNodes applies below
   // (flowIds/selItem/connected, 0.18/0.2/0.25). A taxo child's dimming keys off its ROOT CLASS,
@@ -839,15 +984,15 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       return {
         id: t.id, type: 'brick', position: pos[t.id] ?? { x: 0, y: 0 },
         data: {
-          task: t, color: natureColor(t.id), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families,
+          task: t, color: natureColor(t.id, isDark), opacity, selected: selected?.id === t.id, badges: BADGES[t.id] ?? [], families,
           minH: heights[t.id] ?? headerH(t) + ROW_H,
-          handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? natureColor(t.id), label: portLabel[h.id] ?? '' })),
+          handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? natureColor(t.id, isDark), label: portLabel[h.id] ?? '' })),
           hasTaxonomy: toposService.getTaxonomy(t.id).length > 0, taxoExpanded: expanded.has(t.id), onToggleTaxo: toggleTaxo,
         },
         zIndex: selected?.id === t.id ? 3 : 1,
       } as Node;
     });
-  }, [tasks, flowIds, connected, selected, selItem, pos, handles, heights, portColor, portLabel, expanded, toggleTaxo, containerLayouts]);
+  }, [tasks, flowIds, connected, selected, selItem, pos, handles, heights, portColor, portLabel, expanded, toggleTaxo, containerLayouts, isDark]);
 
   // Absolute-position every visible taxo cell (leaf AND nested container) for every expanded
   // class, by combining ELK's position for the class root with `containerLayout`'s relative grid.
@@ -872,14 +1017,14 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       if (isClassRoot) {
         const t = toposService.getTaskById(f.renderId);
         if (!t) return null;
-        const color = natureColor(t.id);
+        const color = natureColor(t.id, isDark);
         return {
           id: f.renderId, type: 'container', ...base,
           data: {
             variant: 'class', label: t.name, nature: natureOf(t.id), color, opacity,
             selected: selected?.id === t.id, onToggle: toggleTaxo,
             headerH: f.header ?? CONTAINER_HEADER_H, gutterL: f.gutterL ?? 0, gutterR: f.gutterR ?? 0, w: f.w, h: f.h,
-            catLabel: catLabel(t.id), icon: kindOf(t).icon,
+            catLabel: catLabel(t.id), icon: kindOf(t).icon, partId: partId(t),
             handles: (handles[t.id] ?? []).map(h => ({ ...h, color: portColor[h.id] ?? color, label: portLabel[h.id] ?? '' })),
           } as ContainerNodeData,
         } as Node;
@@ -889,38 +1034,48 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       return {
         id: f.renderId, type: 'container', ...base,
         data: {
-          variant: 'family', label: rt?.name ?? f.renderId, nature, color: NATURES[nature].color, opacity,
+          variant: 'family', label: rt?.name ?? f.renderId, nature, color: natureColorFor(nature, isDark), opacity,
           selected: selTaxo?.id === f.renderId, onToggle: toggleTaxo,
           headerH: f.header ?? CONTAINER_HEADER_H, gutterL: 0, gutterR: 0, w: f.w, h: f.h,
-          childCount: rt?.childCount ?? 0,
+          childCount: rt?.childCount ?? 0, enter: true,
         } as ContainerNodeData,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [containerFlat, taxoById, selected, selTaxo, classOpacity, handles, portColor, portLabel, toggleTaxo]);
+  }, [containerFlat, taxoById, selected, selTaxo, classOpacity, handles, portColor, portLabel, toggleTaxo, isDark]);
 
   // Leaf cells (collapsed-family or instance cards) inside any expanded container, at their
   // absolute canvas position — reuse the existing FamilyNode/InstanceNode components as-is.
   const taxoLeafNodesRF: Node[] = useMemo(() => {
+    const perParent = new Map<string, number>();
     return containerFlat.filter(f => f.kind !== 'container').map(f => {
       const rt = taxoById.get(f.renderId);
       if (!rt) return null;
       const classId = f.renderId.split('::')[0];
       const opacity = classOpacity(classId);
       const isSel = selTaxo?.id === f.renderId;
+      const color = natureColorFor(rt.nature, isDark);
+      // Stagger is per-PARENT container: reset the counter for each parent so a freshly-expanded
+      // family's children cascade 0,45,90… from 0ms regardless of how many unrelated cards are
+      // already open elsewhere. A single global index saturated the Math.min(…,7) cap and collapsed
+      // the stagger into a simultaneous 315ms-delayed pop.
+      const parentKey = f.renderId.slice(0, f.renderId.lastIndexOf('::'));
+      const localIdx = perParent.get(parentKey) ?? 0;
+      perParent.set(parentKey, localIdx + 1);
+      const enterDelay = Math.min(localIdx, 7) * 45;
       if (f.kind === 'family') {
         return {
           id: f.renderId, type: 'family', position: { x: f.x, y: f.y },
-          data: { name: rt.name, childCount: rt.childCount, nature: rt.nature, expanded: expanded.has(f.renderId), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity } as FamilyNodeData,
+          data: { name: rt.name, childCount: rt.childCount, color, expanded: expanded.has(f.renderId), hasChildren: rt.hasChildren, onToggle: toggleTaxo, selected: isSel, opacity, enterDelay } as FamilyNodeData,
           zIndex: 2,
         } as Node;
       }
       return {
         id: f.renderId, type: 'instance', position: { x: f.x, y: f.y },
-        data: { name: rt.name, nature: rt.nature, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId) } as InstanceNodeData,
+        data: { name: rt.name, color, status: rt.status, selected: isSel, opacity, seq: f.seq, io: toposService.getTaxoIO(rt.taxoId), schema: toposService.getVaultSchema(rt.taxoId), enterDelay } as InstanceNodeData,
         zIndex: 2,
       } as Node;
     }).filter(Boolean) as Node[];
-  }, [containerFlat, taxoById, selTaxo, classOpacity, expanded, toggleTaxo]);
+  }, [containerFlat, taxoById, selTaxo, classOpacity, expanded, toggleTaxo, isDark]);
 
   // cross-cutting bands (Constraints / Touchpoints) laid out below the flow's bounding box.
   const bands = useMemo(() => {
@@ -943,7 +1098,7 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       });
     });
     const h = BAND_LABEL + rows * (ITEM_H + ITEM_GY) - ITEM_GY + BAND_PAD;
-    zones.push({ id: 'band_constraint', type: 'band', position: { x: minX - 22, y: maxY + BAND_GAP - 6 }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: bandW + 44, height: h + 12 }, draggable: false, selectable: false, zIndex: -1 } as Node);
+    zones.push({ id: 'band_constraint', type: 'band', position: { x: snapTo24(minX - 24), y: snapTo24(maxY + BAND_GAP - 8) }, data: { label: BAND.constraint.label, role: BAND.constraint.role, color: BAND.constraint.color }, style: { width: roundUp24(bandW + 48), height: roundUp24(h + 16) }, draggable: false, selectable: false, zIndex: -1 } as Node);
     return { zones, items };
   }, [pos, heights, widths, tasks, constraints]);
 
@@ -1025,24 +1180,25 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
   if (!pos) {
     return (
-      <div style={{ width: '100%', height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isDark ? '#0a1018' : '#f4f6f8', color: isDark ? '#9aa4b2' : '#5a6270', fontFamily: 'monospace', fontSize: 13 }}>
+      <div style={{ width: '100%', height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: isDark ? '#0a1018' : '#f4f6f8', color: isDark ? '#9aa4b2' : '#5a6270', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
         раскладка…
       </div>
     );
   }
 
   return (
+    <PillContext.Provider value={{ active: activeValue, onActivate }}>
     <div style={{ position: 'relative', width: '100%', height, background: isDark ? '#0a1018' : '#f4f6f8' }}>
       <ReactFlow
         nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} colorMode={isDark ? 'dark' : 'light'}
         onNodeClick={onNodeClick} onPaneClick={() => { setSelected(null); setSelItem(null); setSelTaxo(null); }}
         fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.2} proOptions={{ hideAttribution: true }}
       >
-        <Background gap={22} color={isDark ? '#16202e' : '#dfe4ea'} />
+        <Background id="bg-grid" gap={24} size={1} offset={12} variant={BackgroundVariant.Dots} color={isDark ? '#1b2838' : '#dfe4ea'} />
 
         <Panel position="top-left">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 700 }}>
-            <span style={{ fontSize: 11, fontFamily: 'monospace', opacity: 0.6, marginRight: 2 }}>{TOPOS_DATA.meta.title} · путь:</span>
+            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', opacity: 0.6, marginRight: 2 }}>{TOPOS_DATA.meta.title} · путь:</span>
             <button onClick={() => setActiveFlow(null)} style={btn(activeFlow === null, isDark)}>весь граф</button>
             {examples.map((e) => (<button key={e.id} onClick={() => setActiveFlow(e.id)} style={btn(activeFlow === e.id, isDark)}>{e.title}</button>))}
             <span style={{ width: 1, height: 16, background: 'var(--border,#2a3646)', margin: '0 2px' }} />
@@ -1053,11 +1209,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
 
         {!selected && (
           <Panel position="top-right">
-            <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'monospace', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)', maxHeight: 'calc(100vh - 90px)', overflowY: 'auto' }}>
+            <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)', maxHeight: 'calc(100vh - 90px)', overflowY: 'auto' }}>
               <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>ПРИРОДА · цвет</div>
-              {(Object.keys(NATURES) as Nature[]).map(k => {
-                const n = NATURES[k];
-                return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: n.color, display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{n.label}</span></div>);
+              {(Object.keys(NATURES_META) as Nature[]).map(k => {
+                const n = NATURES_META[k];
+                return (<div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: natureColorFor(k, isDark), display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>{n.label}</span></div>);
               })}
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>ФУНКЦИЯ · иконка</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px' }}>
@@ -1081,6 +1237,10 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
                 <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible' }}><path d="M7 1.1 L12.9 7 L7 12.9 L1.1 7 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>выход</span>
                 <svg width="12" height="12" viewBox="0 0 14 14" style={{ overflow: 'visible', marginLeft: 4 }}><path d="M2 1 L13.5 7 L2 13 Z" fill="#8a8f98" /></svg><span style={{ opacity: 0.85 }}>вход</span>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <span style={{ width: 6, height: 6, border: '1.2px solid #8a8f98', background: '#8a8f98', display: 'inline-block' }} /><span style={{ opacity: 0.85 }}>обяз. параметр</span>
+                <span style={{ width: 6, height: 6, border: '1.2px solid #8a8f98', background: 'transparent', display: 'inline-block', marginLeft: 4 }} /><span style={{ opacity: 0.85 }}>опц. параметр</span>
+              </div>
               <div style={{ opacity: 0.55, margin: '7px 0 4px', letterSpacing: '.08em' }}>СОСТАВ (▸ развернуть)</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 14, height: 9, border: '1px dashed #5a6675', opacity: 0.6, display: 'inline-block', borderRadius: 2 }} /><span style={{ opacity: 0.85 }}>контейнер</span><span style={{ opacity: 0.45 }}>принадлежность = вложенность</span>
@@ -1099,15 +1259,17 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
       {selected && <DetailDrawer task={selected} isDark={isDark} onClose={() => setSelected(null)} />}
       {!selected && selItem && <ItemDrawer item={selItem} isDark={isDark} onClose={() => setSelItem(null)} />}
       {!selected && !selItem && selTaxo && <TaxoDrawer taxo={selTaxo} isDark={isDark} onClose={() => setSelTaxo(null)} />}
+      {activeValue !== null && <PillInspector value={activeValue} onClose={() => onActivate(activeValue)} />}
     </div>
+    </PillContext.Provider>
   );
 }
 
 function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; onClose: () => void }) {
   const { icon: Icon } = kindOf(task);
-  const color = natureColor(task.id);
+  const color = natureColor(task.id, isDark);
   const cat = CATEGORIES[catOf(task.id)];
-  const nat = NATURES[natureOf(task.id)];
+  const nat = NATURES_META[natureOf(task.id)];
   const layer = toposService.getLayerById(task.layer_id);
   const io = task.io_spec;
   return (
@@ -1115,22 +1277,22 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ color }}><Icon size={16} /></span>
-          <span style={{ fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{cat.label}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{cat.label}</span>
         </div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted,#9aa4b2)', cursor: 'pointer' }}><X size={16} /></button>
       </div>
       <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{task.name}</h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{nat.label}</span>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#c2c9d4)' }}>{cat.label}</span>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>зона: {layer?.name}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{nat.label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#c2c9d4)' }}>{cat.label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>зона: {layer?.name}</span>
       </div>
       <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted,#c2c9d4)', marginBottom: 12 }}>{task.elevator_pitch}</p>
       {task.example_usage && <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted,#9aa4b2)', marginBottom: 12, fontStyle: 'italic' }}>{task.example_usage}</p>}
       {BADGES[task.id] && <Section title="ОСИ">{BADGES[task.id].map(b => <Chip key={b} color={color}>{b}</Chip>)}</Section>}
       {io && (
         <Section title="ВХОД → ВЫХОД">
-          <div style={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 1.6, color: 'var(--text-muted,#c2c9d4)' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.6, color: 'var(--text-muted,#c2c9d4)' }}>
             <div><span style={{ opacity: 0.5 }}>in: </span>{[...io.inputs.required, ...io.inputs.optional].map(ioLabel).join(', ') || '—'}</div>
             <div><span style={{ opacity: 0.5 }}>out: </span>{ioLabel(io.outputs.primary)}</div>
           </div>
@@ -1157,7 +1319,7 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
               const tgt = toposService.getTaskById(r.target_id); const c = EDGE_COLOR[r.type] ?? '#8a8f98';
               return (
                 <div key={i} style={{ fontSize: 12, lineHeight: 1.4 }}>
-                  <div><span style={{ fontFamily: 'monospace', fontSize: 10, color: c }}>{r.type}</span> <span>→ {tgt?.name ?? r.target_id}</span></div>
+                  <div><span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: c }}>{r.type}</span> <span>→ {tgt?.name ?? r.target_id}</span></div>
                   <div style={{ color: 'var(--text-muted,#8a8f98)', fontSize: 11 }}>{r.reason}</div>
                 </div>
               );
@@ -1171,24 +1333,24 @@ function DetailDrawer({ task, isDark, onClose }: { task: Task; isDark: boolean; 
 // Detail drawer for a family/instance taxo node — deliberately NOT the Task DetailDrawer (a
 // TaxoNode is a different shape entirely: no io_spec/relations/example_usage).
 function TaxoDrawer({ taxo, isDark, onClose }: { taxo: TaxoRender; isDark: boolean; onClose: () => void }) {
-  const color = NATURES[taxo.nature].color;
+  const color = natureColorFor(taxo.nature, isDark);
   const cls = toposService.getTaskById(taxo.classId);
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, width: 360, height: '100%', background: isDark ? 'rgba(9,15,23,.96)' : 'rgba(250,251,252,.97)', borderLeft: `1px solid var(--border,#2a3646)`, boxShadow: '-8px 0 24px rgba(0,0,0,.35)', overflowY: 'auto', zIndex: 20, padding: '16px 18px', color: 'var(--text-main,#e6e9ee)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ width: 10, height: 10, borderRadius: 3, background: color, display: 'inline-block' }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{taxo.kind === 'family' ? 'СЕМЕЙСТВО' : 'ЭКЗЕМПЛЯР'}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{taxo.kind === 'family' ? 'СЕМЕЙСТВО' : 'ЭКЗЕМПЛЯР'}</span>
         </div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted,#9aa4b2)', cursor: 'pointer' }}><X size={16} /></button>
       </div>
       <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{taxo.name}</h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{NATURES[taxo.nature].label}</span>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#c2c9d4)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{NATURES_META[taxo.nature].label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#c2c9d4)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <StatusDot status={taxo.status} size={7} />{STATUS_LABEL[taxo.status]}
         </span>
-        {cls && <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>класс: {cls.name}</span>}
+        {cls && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>класс: {cls.name}</span>}
       </div>
       {taxo.note && <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted,#c2c9d4)', marginBottom: 12 }}>{taxo.note}</p>}
       {taxo.kind === 'family' && <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted,#9aa4b2)' }}>{taxo.childCount} {taxo.childCount === 1 ? 'элемент' : 'элементов'} в составе</p>}
@@ -1205,17 +1367,17 @@ function ItemDrawer({ item, isDark, onClose }: { item: { kind: 'constraint' | 't
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ color }}><Icon size={16} /></span>
-          <span style={{ fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{BAND[kind].label}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em', color }}>{BAND[kind].label}</span>
         </div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted,#9aa4b2)', cursor: 'pointer' }}><X size={16} /></button>
       </div>
       <h2 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{raw.name}</h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{catLbl}</span>
-        {raw.type && <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>{raw.type}</span>}
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: `${color}18`, color }}>{catLbl}</span>
+        {raw.type && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border,#2a3646)', color: 'var(--text-muted,#9aa4b2)' }}>{raw.type}</span>}
       </div>
       {raw.description && <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted,#c2c9d4)', marginBottom: 12 }}>{raw.description}</p>}
-      {raw.example_values && <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted,#9aa4b2)', marginBottom: 12, fontFamily: 'monospace' }}>{raw.example_values}</p>}
+      {raw.example_values && <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted,#9aa4b2)', marginBottom: 12, fontFamily: 'var(--font-mono)' }}>{raw.example_values}</p>}
       {related.length > 0 && (
         <Section title="КАСАЕТСЯ УЗЛОВ">
           {related.map((id: string) => { const t = toposService.getTaskById(id); return <Chip key={id} color={color}>{t?.name ?? id}</Chip>; })}
@@ -1230,17 +1392,17 @@ function ItemDrawer({ item, isDark, onClose }: { item: { kind: 'constraint' | 't
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '.1em', opacity: 0.5, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', opacity: 0.5, marginBottom: 6 }}>{title}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>{children}</div>
     </div>
   );
 }
 function Chip({ children, color }: { children: React.ReactNode; color: string }) {
-  return <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}55`, color }}>{children}</span>;
+  return <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}55`, color }}>{children}</span>;
 }
 function btn(active: boolean, isDark: boolean): React.CSSProperties {
   return {
-    fontSize: 11, fontFamily: 'monospace', padding: '4px 9px', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+    fontSize: 11, fontFamily: 'var(--font-mono)', padding: '4px 9px', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
     border: `1px solid ${active ? '#42c48a' : 'var(--border, #2a3646)'}`,
     background: active ? 'rgba(66,196,138,.15)' : (isDark ? 'rgba(19,29,43,.85)' : 'rgba(255,255,255,.9)'),
     color: active ? '#42c48a' : 'var(--text-muted, #9aa4b2)',

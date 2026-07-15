@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { TAXONOMY } from '../data/taxonomy';
 import { TAXO_IO } from '../data/taxonomy_io';
+import { VAULT_SCHEMA, type VaultTableSchema } from '../data/vault_schema';
 
 export type RelationshipType = 'upstream' | 'downstream' | 'lateral' | 'conflict';
 
@@ -152,6 +153,53 @@ class ToposService {
    */
   getTaxoIO(taxoId: string): TaxoIO | undefined {
     return TAXO_IO[taxoId];
+  }
+
+  /**
+   * DB-table schema (columns + types) for a taxonomy instance id under store_vault —
+   * extracted from ~/vectoros via scripts/extract_vault_schema.py into data/vault_schema.ts.
+   * Returns undefined when the instance has no matching live table.
+   */
+  getVaultSchema(taxoId: string): VaultTableSchema | undefined {
+    return VAULT_SCHEMA[taxoId];
+  }
+
+  /**
+   * Pill-inspector (Task 15-R): given the exact text of a clicked pill (a param name, an enum
+   * value, an output label, a DB column name, or a column type), scans TAXO_IO + VAULT_SCHEMA for
+   * every OTHER place that same text occurs — pure data scan, no model. Dedup by `where+role`.
+   */
+  findValueOccurrences(value: string): { where: string; role: string }[] {
+    const out: { where: string; role: string }[] = [];
+    const seen = new Set<string>();
+    const add = (where: string, role: string) => {
+      const key = `${where} ${role}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ where, role });
+    };
+
+    // TAXO_IO keys are always `tool_<name>` / `det_<name>` (verified by check_taxo_io.ts) — strip
+    // the prefix to recover the human tool/detector name for display.
+    for (const [taxoId, io] of Object.entries(TAXO_IO)) {
+      const toolName = taxoId.replace(/^(tool_|det_)/, '');
+      for (const input of io.inputs ?? []) {
+        if (input.name === value) add(toolName, 'параметр');
+        if (input.enumValues?.includes(value)) add(toolName, `значение параметра ${input.name}`);
+      }
+      for (const output of io.outputs ?? []) {
+        if (output === value) add(toolName, 'выход');
+      }
+    }
+
+    for (const schema of Object.values(VAULT_SCHEMA)) {
+      for (const column of schema.columns) {
+        if (column.name === value) add(schema.table, 'колонка');
+        if (column.type === value) add(schema.table, `тип колонки ${column.name}`);
+      }
+    }
+
+    return out;
   }
 
   /** Depth-first flatten of a taxonomy tree, including every descendant (families + instances). */

@@ -117,7 +117,12 @@ def _derive_output_label(description: str) -> str | None:
     if not label:
         return None
     if len(label) > 100:
-        label = label[:97].rstrip() + "..."
+        # cut at the last word boundary at or before 97 chars, not mid-word
+        cut = label[:97]
+        last_space = cut.rfind(" ")
+        if last_space > 60:   # only back off if it doesn't eat more than a third of the budget
+            cut = cut[:last_space]
+        label = cut.rstrip().rstrip(",;") + "..."
     return label
 
 
@@ -133,10 +138,14 @@ def extract_tools(schemas_path: Path) -> dict[str, dict]:
             input_schema = tool.get("input_schema", {}) or {}
             properties = input_schema.get("properties", {}) or {}
             required = set(input_schema.get("required", []) or [])
-            inputs = [
-                {"name": prop_name, "required": prop_name in required}
-                for prop_name in properties.keys()
-            ]
+            inputs = []
+            for prop_name in properties.keys():
+                prop_schema = properties.get(prop_name) or {}
+                enum_vals = prop_schema.get("enum") if isinstance(prop_schema, dict) else None
+                entry: dict = {"name": prop_name, "required": prop_name in required}
+                if isinstance(enum_vals, list) and enum_vals:
+                    entry["enum"] = [str(v) for v in enum_vals]
+                inputs.append(entry)
             description = tool.get("description", "") or ""
             output_label = _derive_output_label(description)
             entry: dict = {"inputs": inputs}

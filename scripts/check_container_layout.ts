@@ -6,7 +6,7 @@
  */
 import { loadToposData } from '../lib/dataLoader';
 import { toposService } from '../services/toposService';
-import { containerLayout, flattenContainerLayout, TAXO_W, TAXO_H, CONTAINER_GUTTER_W, instanceCellHeight } from '../features/topos/lib/containerLayout';
+import { containerLayout, flattenContainerLayout, TAXO_W, TAXO_H, CONTAINER_GUTTER_W, instanceCellHeight, CELL_GAP } from '../features/topos/lib/containerLayout';
 import { taxoRenderId } from '../features/topos/lib/visibleTaxo';
 import type { Task } from '../types';
 
@@ -66,9 +66,12 @@ async function main() {
     assert(nested.cells.length === 17, `17 instance cells inside fam_drift (got ${nested.cells.length})`);
     assert(nested.gutterL === 0 && nested.gutterR === 0, 'nested family container reserves NO port gutters');
     const cols = new Set(nested.cells.map(c => c.x)).size;
-    assert(cols > 1, `grid wraps into >1 distinct column (got ${cols} distinct x offsets)`);
-    const rows = new Set(nested.cells.map(c => c.y)).size;
-    assert(rows > 1, `grid wraps into >1 row (got ${rows} distinct y offsets)`);
+    assert(cols > 1, `masonry wraps into >1 distinct column (got ${cols} distinct x offsets)`);
+    // masonry: the TALLEST column's total height should be noticeably less than what a single
+    // 1-column stack of all 17 cells would need — proves the packer actually distributes load
+    // instead of degenerating to one column.
+    const singleColumnH = nested.cells.reduce((sum, c) => sum + c.h, 0) + CELL_GAP * (nested.cells.length - 1);
+    assert(nested.size.h < singleColumnH, `masonry height (${nested.size.h}) is less than a naive single-column stack (${singleColumnH})`);
     assertCellsInBounds('fam_drift (nested)', nested, false);
 
     // nested sub-container sized to fit its own children (not just the fixed TAXO_H.instance)
@@ -113,7 +116,10 @@ async function main() {
     const seqs = nested.cells.map(c => c.seq);
     assert(JSON.stringify(seqs) === JSON.stringify([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), `cells are seq-ordered 0..10 in grid fill order (got ${seqs.join(',')})`);
     const cols = new Set(nested.cells.map(c => c.x)).size;
-    assert(cols > 1, `dream grid wraps (>1 column, got ${cols})`);
+    assert(cols > 1, `dream masonry wraps (>1 column, got ${cols})`);
+    // the seq ARRAY order (already asserted above) is the pipeline's source of truth — masonry is
+    // free to place seq-adjacent cells in different columns; each cell's own seq badge (rendered by
+    // InstanceNode) carries the order, not grid position.
     assertCellsInBounds('fam_dream (nested)', nested, false);
   }
 
