@@ -103,3 +103,32 @@ Each entry: what was found, evidence, the fix, and where it was folded back.
 - Deployed commit: `6c8adec` (Merge branch 'blueprint'). Bundle `CanvasPage-yLILsmBF.js` md5 `031b6b09c21d4162f8b3b3de1312ba3e`.
 - Verified: dist↔served hash parity exact; live curl → 401 (basic-auth intact). tsc==1, build ✓, all 7 check_*.ts PASSED on main.
 - 9 divergences caught adversarially (D-001..D-009); B7 motion Block→fixed→re-verified ALL PASS.
+
+## D-010 — Task 4 (blueprint substrate) was SKIPPED across all batches; shipped after owner flagged "нет визуала как на демке"
+- **Found:** 2026-07-15, post-deploy. Owner reported the live map didn't read like the design. Root cause:
+  batches 1-7 covered T1-3, T5-17 + motion, but **Task 4 (`## Task 4: Blueprint substrate — grid,
+  registration ticks, title block, vignette`) was never in any batch**. The component system landed;
+  the "drawing" framing that makes it read as an engineering blueprint did not. Compounded: the "Final
+  Wave Verification" checked the `check_*.ts` scripts (which don't cover T4's purely-visual framing) and
+  reported "all 17 done" — a completeness miss (verified scripts, not task-list coverage).
+- **Fix (branch `substrate` → main `3a2bbe4`, deployed):** implemented T4 — two-layer engineering grid
+  (fine dots gap24 + coarse ruled lines gap120=5×24, kept aligned to the 24px node grid), bottom-right
+  title block (PROJECT/SUBJECT/SHEET/SCALE; SHEET tracks the active path), 4 corner registration ticks
+  (viewport-fixed), soft vignette, and a Geist-Mono masthead `⌐ topos / КАРТА АРХИТЕКТУРЫ · VECTOROS`
+  (no serif — brand DECISION A). Also **defaulted the theme to dark** (`useDarkMode` fallback → dark;
+  the design direction is the dark "night blueprint", was defaulting to light/system).
+- **Lesson:** "done" must reconcile against the plan's TASK LIST, not only the green check-scripts. A
+  purely-visual task with no assertion script is invisible to a script-only gate — eyeball the render
+  against every task, or add a coverage check.
+
+## D-011 — legend collapsed + shared /p docs-nav coexistence (owner request, same deploy)
+- Legend was an always-open top-right Panel colliding with the `/p` zone's shared `#pnav-btn` ("≡ доки",
+  fixed top:14/right:14). Collapsed the legend into a `≡ легенда` toggle offset `marginTop:56` so it
+  stacks cleanly UNDER the docs button (verified live: docs 14–44, legend from 56, no overlap). Added
+  `<script src="/p/_nav.js" defer>` to the app's own `index.html` so a plain `rsync` no longer drops the
+  global nav (it was previously injected post-build by autorun.dev's pre-commit `_gen_nav.mjs` hook).
+
+## DEPLOYED (2) — substrate + legend, 2026-07-15
+- main `3a2bbe4` deployed to `autorun.dev/p/topos/vector/`. Bundle `CanvasPage-D_gxDwca.js` md5
+  `8a8a5f938c095fe0af834d5a083f30ac`; hash-parity exact; live 200 w/ creds, 401 w/o; real `≡ доки 42`
+  present + no overlap; dark default; 0 console errors. tsc==1, build ✓, all 7 check_*.ts PASSED on main.
