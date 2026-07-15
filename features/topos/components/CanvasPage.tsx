@@ -834,6 +834,7 @@ const edgeTypes = { elk: ElkEdge, contains: ContainsEdgeComp };
 export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string } = {}) {
   const { isDark, toggle } = useDarkMode();
   const [activeFlow, setActiveFlow] = useState<string | null>(null);
+  const [showLegend, setShowLegend] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
   const [selItem, setSelItem] = useState<{ kind: 'constraint' | 'touchpoint'; raw: any; related: string[] } | null>(null);
   const [showStores, setShowStores] = useState(true);
@@ -1215,8 +1216,11 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         </Panel>
 
         {!selected && (
-          <Panel position="top-right">
-            <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)', maxHeight: 'calc(100vh - 90px)', overflowY: 'auto' }}>
+          <Panel position="top-right" style={{ marginTop: 44 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              <button onClick={() => setShowLegend(v => !v)} style={btn(showLegend, isDark)} title="Легенда — природа, связи, порты, статусы">{showLegend ? '× легенда' : '≡ легенда'}</button>
+              {showLegend && (
+            <div style={{ background: isDark ? 'rgba(11,20,32,.82)' : 'rgba(255,255,255,.9)', border: '1px solid var(--border,#2a3646)', borderRadius: 8, padding: '9px 11px', fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.5, color: 'var(--text-main,#e6e9ee)', maxHeight: 'calc(100vh - 150px)', overflowY: 'auto' }}>
               <div style={{ opacity: 0.55, marginBottom: 4, letterSpacing: '.08em' }}>ПРИРОДА · цвет</div>
               {(Object.keys(NATURES_META) as Nature[]).map(k => {
                 const n = NATURES_META[k];
@@ -1258,6 +1262,8 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
                   <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 5 }}><StatusDot status={s} /><span style={{ opacity: 0.8 }}>{STATUS_LABEL[s]}</span></div>
                 ))}
               </div>
+            </div>
+              )}
             </div>
           </Panel>
         )}
