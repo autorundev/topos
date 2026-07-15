@@ -97,3 +97,9 @@ Each entry: what was found, evidence, the fix, and where it was folded back.
   initial values (which apply regardless of which transition wins) and still governs container nodes
   (T11 Step 3, `className:'topos-enter'`) where no inline transition overrides it. ItemNode is
   unchanged from the plan (T11 adds no `.topos-enter` to it → no filter needed).
+
+## DEPLOYED — Blueprint polish complete (2026-07-15)
+- All 7 batches (T1-T17 + T15-R + T9-T12 motion) merged to main and deployed to `autorun.dev/p/topos/vector/`.
+- Deployed commit: `6c8adec` (Merge branch 'blueprint'). Bundle `CanvasPage-yLILsmBF.js` md5 `031b6b09c21d4162f8b3b3de1312ba3e`.
+- Verified: dist↔served hash parity exact; live curl → 401 (basic-auth intact). tsc==1, build ✓, all 7 check_*.ts PASSED on main.
+- 9 divergences caught adversarially (D-001..D-009); B7 motion Block→fixed→re-verified ALL PASS.
