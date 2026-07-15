@@ -7,8 +7,8 @@ export function useDarkMode() {
     if (stored !== null) {
       return stored === 'true';
     }
-    // Default to system preference
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // Topos identity is the dark "night blueprint" — default to dark regardless of OS; the ◐/☀ toggle still switches + persists.
+    return true;
   });
 
   useEffect(() => {

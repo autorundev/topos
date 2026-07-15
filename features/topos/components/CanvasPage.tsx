@@ -1195,10 +1195,17 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
         fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.2} proOptions={{ hideAttribution: true }}
       >
         <Background id="bg-grid" gap={24} size={1} offset={12} variant={BackgroundVariant.Dots} color={isDark ? '#1b2838' : '#dfe4ea'} />
+        <Background id="bg-major" gap={120} lineWidth={1} variant={BackgroundVariant.Lines} color={isDark ? '#132030' : '#e6e9ee'} style={{ opacity: isDark ? 0.6 : 0.4 }} />
 
         <Panel position="top-left">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 700 }}>
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', opacity: 0.6, marginRight: 2 }}>{TOPOS_DATA.meta.title} · путь:</span>
+            <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.1, marginRight: 8 }}>
+              <span style={{ fontSize: 15, fontFamily: 'var(--font-mono)', fontWeight: 500, letterSpacing: '-0.02em', color: isDark ? '#c8d2e2' : '#1a2230' }}>
+                <span style={{ opacity: 0.5, marginRight: 3 }}>⌐</span>{TOPOS_DATA.meta.title.toLowerCase()}
+              </span>
+              <span style={{ fontSize: 8.5, fontFamily: 'var(--font-mono)', letterSpacing: '.14em', textTransform: 'uppercase', opacity: 0.5, marginTop: 2 }}>карта архитектуры · VectorOS</span>
+            </span>
+            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', opacity: 0.4, marginRight: 2, alignSelf: 'center' }}>путь:</span>
             <button onClick={() => setActiveFlow(null)} style={btn(activeFlow === null, isDark)}>весь граф</button>
             {examples.map((e) => (<button key={e.id} onClick={() => setActiveFlow(e.id)} style={btn(activeFlow === e.id, isDark)}>{e.title}</button>))}
             <span style={{ width: 1, height: 16, background: 'var(--border,#2a3646)', margin: '0 2px' }} />
@@ -1254,7 +1261,50 @@ export function CanvasPage({ height = 'calc(100vh - 60px)' }: { height?: string 
             </div>
           </Panel>
         )}
+
+        <Panel position="bottom-right">
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.04em',
+            color: isDark ? '#77839a' : '#5a6270',
+            background: isDark ? 'rgba(16,21,31,.72)' : 'rgba(255,255,255,.85)',
+            border: `1px solid ${isDark ? 'rgba(150,168,200,.14)' : 'rgba(0,0,0,.08)'}`,
+            borderRadius: 6, minWidth: 240, overflow: 'hidden', backdropFilter: 'blur(6px)',
+          }}>
+            {([
+              ['project', TOPOS_DATA.meta.title.split('—')[0].trim()],
+              ['subject', 'VectorOS · архитектура и логика'],
+              ['sheet', activeFlow ? (examples.find(e => e.id === activeFlow)?.title ?? 'весь граф') : 'весь граф'],
+              ['scale', 'кластер → класс → семейство → экземпляр'],
+            ] as [string, string][]).map(([k, v], i, arr) => (
+              <div key={k} style={{ display: 'flex', borderBottom: i < arr.length - 1 ? `1px solid ${isDark ? 'rgba(150,168,200,.14)' : 'rgba(0,0,0,.08)'}` : 'none' }}>
+                <div style={{ padding: '5px 9px', borderRight: `1px solid ${isDark ? 'rgba(150,168,200,.14)' : 'rgba(0,0,0,.08)'}`, textTransform: 'uppercase', color: isDark ? '#4a556b' : '#9aa4b2', width: 64, flex: '0 0 auto' }}>{k}</div>
+                <div style={{ padding: '5px 9px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </Panel>
       </ReactFlow>
+
+      {/* corner registration ticks — a drawing's crop marks; viewport-fixed */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}>
+        {(['tl', 'tr', 'bl', 'br'] as const).map(corner => {
+          const st: React.CSSProperties = { position: 'absolute', width: 22, height: 22, opacity: isDark ? 0.4 : 0.25 };
+          if (corner.includes('t')) st.top = 12; else st.bottom = 12;
+          if (corner.includes('l')) st.left = 12; else st.right = 12;
+          const c = isDark ? '#4a556b' : '#9aa4b2';
+          return (
+            <div key={corner} style={st}>
+              <div style={{ position: 'absolute', width: 22, height: 1, top: 10, background: c }} />
+              <div style={{ position: 'absolute', height: 22, width: 1, left: 10, background: c }} />
+            </div>
+          );
+        })}
+      </div>
+      {/* soft vignette for depth */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 4,
+        background: isDark
+          ? 'radial-gradient(125% 85% at 50% 42%, transparent 55%, rgba(0,0,0,.45) 100%)'
+          : 'radial-gradient(125% 85% at 50% 42%, transparent 62%, rgba(70,82,105,.10) 100%)' }} />
 
       {selected && <DetailDrawer task={selected} isDark={isDark} onClose={() => setSelected(null)} />}
       {!selected && selItem && <ItemDrawer item={selItem} isDark={isDark} onClose={() => setSelItem(null)} />}
